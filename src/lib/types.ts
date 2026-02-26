@@ -39,6 +39,12 @@ export interface ActionItemAttachment {
   size?: number; // bytes
 }
 
+export interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface ActionItem {
   id: number;
   title: string;
@@ -55,6 +61,7 @@ export interface ActionItem {
   completed_at: string | null;
   sent_via: string | null;
   sent_at: string | null;
+  checklist: ChecklistItem[];
   links: ActionItemLink[];
   attachments: ActionItemAttachment[];
   created_at: string;

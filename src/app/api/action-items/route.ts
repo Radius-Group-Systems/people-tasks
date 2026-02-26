@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json();
   const {
     title, description, owner_type, person_id, source_person_id,
-    encounter_id, priority, due_at, due_trigger, links, attachments
+    encounter_id, priority, due_at, due_trigger, checklist, links, attachments
   } = body;
 
   if (!title?.trim()) {
@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
   }
 
   const result = await query<ActionItem>(
-    `INSERT INTO action_items (title, description, owner_type, person_id, source_person_id, encounter_id, priority, due_at, due_trigger, links, attachments)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    `INSERT INTO action_items (title, description, owner_type, person_id, source_person_id, encounter_id, priority, due_at, due_trigger, checklist, links, attachments)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING *`,
     [
       title.trim(),
@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       priority || "normal",
       due_at || null,
       due_trigger || null,
+      JSON.stringify(checklist || []),
       JSON.stringify(links || []),
       JSON.stringify(attachments || []),
     ]

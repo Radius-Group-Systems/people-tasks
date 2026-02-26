@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ActionItem, ActionItemLink, ActionItemAttachment, Person } from "@/lib/types";
+import { ActionItem, ActionItemLink, ActionItemAttachment, ChecklistItem, Person } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,8 @@ import {
   Trash2Icon,
   PlusIcon,
   XIcon,
+  ListChecksIcon,
+  GripVerticalIcon,
 } from "lucide-react";
 
 interface ActionItemCardProps {
@@ -85,6 +87,57 @@ function timeAgo(dateStr: string) {
   return months === 1 ? "1 month ago" : `${months} months ago`;
 }
 
+// --- Subtask progress pill ---
+function ChecklistPill({ done, total }: { done: number; total: number }) {
+  const allDone = done === total;
+  // For large checklists (>8), show a mini arc ring instead of segments
+  if (total > 8) {
+    const pct = done / total;
+    const r = 7;
+    const circ = 2 * Math.PI * r;
+    return (
+      <span className="inline-flex items-center gap-1" title={`${done} of ${total} done`}>
+        <svg width="18" height="18" viewBox="0 0 18 18" className="flex-shrink-0">
+          <circle cx="9" cy="9" r={r} fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-200" />
+          <circle
+            cx="9" cy="9" r={r} fill="none"
+            strokeWidth="2"
+            strokeDasharray={`${circ * pct} ${circ}`}
+            strokeLinecap="round"
+            transform="rotate(-90 9 9)"
+            className={cn(allDone ? "text-green-500" : "text-blue-500")}
+            stroke="currentColor"
+          />
+        </svg>
+        <span className={cn("text-xs tabular-nums", allDone ? "text-green-600" : "text-muted-foreground")}>
+          {done}/{total}
+        </span>
+      </span>
+    );
+  }
+  // Segmented pill: one block per subtask
+  return (
+    <span className="inline-flex items-center gap-1.5" title={`${done} of ${total} done`}>
+      <span className="inline-flex gap-px">
+        {Array.from({ length: total }).map((_, i) => (
+          <span
+            key={i}
+            className={cn(
+              "w-2 h-2.5 rounded-[1px] transition-colors",
+              i < done
+                ? allDone ? "bg-green-500" : "bg-blue-500"
+                : "bg-gray-200"
+            )}
+          />
+        ))}
+      </span>
+      <span className={cn("text-xs tabular-nums", allDone ? "text-green-600" : "text-muted-foreground")}>
+        {done}/{total}
+      </span>
+    </span>
+  );
+}
+
 // --- Compact row in the list ---
 export function ActionItemCard({
   item,
@@ -98,6 +151,8 @@ export function ActionItemCard({
 
   const hasExtras =
     (item.links?.length > 0) || (item.attachments?.length > 0);
+  const checklistTotal = item.checklist?.length || 0;
+  const checklistDone = item.checklist?.filter((c) => c.done).length || 0;
 
   async function handleToggleDone(e: React.MouseEvent) {
     e.stopPropagation();
@@ -147,6 +202,9 @@ export function ActionItemCard({
             )}
             {item.owner_type === "them" && (
               <Badge variant="outline">waiting</Badge>
+            )}
+            {checklistTotal > 0 && (
+              <ChecklistPill done={checklistDone} total={checklistTotal} />
             )}
             {hasExtras && (
               <span className="flex items-center gap-1 text-muted-foreground">
@@ -217,6 +275,8 @@ function ActionItemModal({
   const [dueDate, setDueDate] = useState(
     item.due_at ? new Date(item.due_at).toISOString().split("T")[0] : ""
   );
+  const [checklist, setChecklist] = useState<ChecklistItem[]>(item.checklist || []);
+  const [newCheckText, setNewCheckText] = useState("");
   const [links, setLinks] = useState<ActionItemLink[]>(item.links || []);
   const [attachments, setAttachments] = useState<ActionItemAttachment[]>(item.attachments || []);
   const [newLinkUrl, setNewLinkUrl] = useState("");
@@ -257,6 +317,7 @@ function ActionItemModal({
         dueTrigger === "date" && dueDate
           ? new Date(dueDate).toISOString()
           : null,
+      checklist,
       links,
       attachments,
     });
@@ -270,6 +331,36 @@ function ActionItemModal({
     await fetch(`/api/action-items/${item.id}`, { method: "DELETE" });
     onUpdate();
     onClose();
+  }
+
+  function handleAddCheckItem() {
+    if (!newCheckText.trim()) return;
+    setChecklist([...checklist, {
+      id: crypto.randomUUID(),
+      text: newCheckText.trim(),
+      done: false,
+    }]);
+    setNewCheckText("");
+    markDirty();
+  }
+
+  function handleToggleCheckItem(id: string) {
+    setChecklist(checklist.map((c) =>
+      c.id === id ? { ...c, done: !c.done } : c
+    ));
+    markDirty();
+  }
+
+  function handleRemoveCheckItem(id: string) {
+    setChecklist(checklist.filter((c) => c.id !== id));
+    markDirty();
+  }
+
+  function handleCheckItemTextChange(id: string, text: string) {
+    setChecklist(checklist.map((c) =>
+      c.id === id ? { ...c, text } : c
+    ));
+    markDirty();
   }
 
   function handleAddLink() {
@@ -475,6 +566,82 @@ function ActionItemModal({
 
         {/* Divider */}
         <div className="border-t mt-4" />
+
+        {/* Checklist */}
+        <div className="px-5 pt-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5">
+              <ListChecksIcon className="w-3.5 h-3.5" />
+              Checklist
+              {checklist.length > 0 && (
+                <span className="text-xs font-normal">
+                  {checklist.filter((c) => c.done).length}/{checklist.length}
+                </span>
+              )}
+            </span>
+          </div>
+          {/* Progress bar */}
+          {checklist.length > 0 && (
+            <div className="h-1.5 bg-gray-100 rounded-full mb-3 overflow-hidden">
+              <div
+                className="h-full bg-green-500 rounded-full transition-all duration-300"
+                style={{ width: `${(checklist.filter((c) => c.done).length / checklist.length) * 100}%` }}
+              />
+            </div>
+          )}
+          {/* Items */}
+          <div className="space-y-1">
+            {checklist.map((c) => (
+              <div key={c.id} className="flex items-start gap-2 group/check py-0.5">
+                <button
+                  onClick={() => handleToggleCheckItem(c.id)}
+                  className={cn(
+                    "mt-1 w-4 h-4 rounded border flex-shrink-0 transition-colors flex items-center justify-center",
+                    c.done
+                      ? "bg-green-500 border-green-500 text-white"
+                      : "border-gray-300 hover:border-green-400"
+                  )}
+                >
+                  {c.done && (
+                    <svg className="w-3 h-3" viewBox="0 0 12 12" fill="none">
+                      <path d="M2.5 6L5 8.5L9.5 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  )}
+                </button>
+                <input
+                  value={c.text}
+                  onChange={(e) => handleCheckItemTextChange(c.id, e.target.value)}
+                  className={cn(
+                    "flex-1 bg-transparent border-none outline-none text-sm py-0",
+                    c.done && "line-through text-muted-foreground"
+                  )}
+                />
+                <button
+                  onClick={() => handleRemoveCheckItem(c.id)}
+                  className="text-muted-foreground/40 hover:text-red-500 opacity-0 group-hover/check:opacity-100 transition-opacity mt-0.5"
+                >
+                  <XIcon className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+          {/* Add new item */}
+          <div className="flex items-center gap-2 mt-1">
+            <PlusIcon className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
+            <input
+              value={newCheckText}
+              onChange={(e) => setNewCheckText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { e.preventDefault(); handleAddCheckItem(); }
+              }}
+              placeholder="Add an item..."
+              className="flex-1 bg-transparent border-none outline-none text-sm placeholder:text-muted-foreground/40"
+            />
+          </div>
+        </div>
+
+        {/* Divider */}
+        <div className="border-t mt-3" />
 
         {/* Links section */}
         <div className="px-5 pt-3">
