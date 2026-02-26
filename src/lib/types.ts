@@ -5,12 +5,25 @@ export interface Person {
   phone: string | null;
   slack_handle: string | null;
   organization: string | null;
+  photo_url: string | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
   // Computed fields (from joins)
   open_items_count?: number;
   waiting_on_count?: number;
+  in_progress_count?: number;
+  done_count?: number;
+  last_encounter_at?: string | null;
+  encounter_count?: number;
+}
+
+export interface EncounterFolder {
+  id: number;
+  name: string;
+  color: string;
+  parent_id: number | null;
+  created_at: string;
 }
 
 export interface Encounter {
@@ -19,12 +32,33 @@ export interface Encounter {
   encounter_type: string;
   occurred_at: string;
   summary: string | null;
+  detailed_summary: MeetingSummary | null;
   raw_transcript: string | null;
   source: string;
   source_file_path: string | null;
+  folder_id: number | null;
+  notes: string | null;
   created_at: string;
   // Joined
   participants?: Person[];
+  action_items?: ActionItem[];
+  folder_name?: string;
+  folder_color?: string;
+}
+
+export interface MeetingSummary {
+  title: string;
+  attendees: string[];
+  topics: {
+    topic: string;
+    conclusion: string;
+    next_steps: string[];
+    discussion_points: {
+      viewpoint: string;
+      supporting_detail: string | null;
+    }[];
+  }[];
+  overall_summary: string;
 }
 
 export interface ActionItemLink {

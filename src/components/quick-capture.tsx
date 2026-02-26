@@ -26,9 +26,13 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
   const [dueTrigger, setDueTrigger] = useState<string>("none");
   const [dueDate, setDueDate] = useState<string>("");
   const [people, setPeople] = useState<Person[]>([]);
+  const [myPersonId, setMyPersonId] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    const stored = localStorage.getItem("my-person-id");
+    if (stored) setMyPersonId(stored);
+
     if (!defaultPersonId) {
       fetch("/api/people")
         .then((r) => r.json())
@@ -48,7 +52,7 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          person_id: personId ? parseInt(personId) : null,
+          person_id: personId && personId !== "_none" ? parseInt(personId) : null,
           owner_type: ownerType,
           due_trigger: dueTrigger === "none" ? null : dueTrigger,
           due_at: dueTrigger === "date" && dueDate ? new Date(dueDate).toISOString() : null,
@@ -81,9 +85,10 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
             <SelectValue placeholder="Person" />
           </SelectTrigger>
           <SelectContent>
+            <SelectItem value="_none">No person</SelectItem>
             {people.map((p) => (
               <SelectItem key={p.id} value={p.id.toString()}>
-                {p.name}
+                {p.id.toString() === myPersonId ? `${p.name} (Me)` : p.name}
               </SelectItem>
             ))}
           </SelectContent>

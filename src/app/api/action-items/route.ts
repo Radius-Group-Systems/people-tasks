@@ -6,6 +6,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const personId = searchParams.get("person_id");
   const ownerType = searchParams.get("owner_type");
+  const encounterId = searchParams.get("encounter_id");
   const status = searchParams.get("status") || "open";
 
   const conditions: string[] = [];
@@ -23,6 +24,10 @@ export async function GET(req: NextRequest) {
   if (ownerType) {
     conditions.push(`ai.owner_type = $${paramIdx++}`);
     params.push(ownerType);
+  }
+  if (encounterId) {
+    conditions.push(`ai.encounter_id = $${paramIdx++}`);
+    params.push(encounterId);
   }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";

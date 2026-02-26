@@ -1,10 +1,18 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionItemCard } from "@/components/action-item-card";
 import { ActionItem } from "@/lib/types";
+import { UsersIcon } from "lucide-react";
 
 const STATUSES = ["open", "in_progress", "snoozed", "done"] as const;
 
@@ -28,6 +36,7 @@ function groupByPerson(items: ActionItem[]) {
 export default function WaitingOnPage() {
   const [itemsByStatus, setItemsByStatus] = useState<Record<string, ActionItem[]>>({});
   const [loading, setLoading] = useState(true);
+  const [personFilter, setPersonFilter] = useState("all");
 
   const fetchData = useCallback(async () => {
     try {
@@ -50,15 +59,47 @@ export default function WaitingOnPage() {
     fetchData();
   }, [fetchData]);
 
+  // Unique people across all statuses
+  const allPeople = useMemo(() => {
+    const names = new Set<string>();
+    for (const items of Object.values(itemsByStatus)) {
+      for (const item of items) {
+        if (item.person_name) names.add(item.person_name);
+      }
+    }
+    return Array.from(names).sort();
+  }, [itemsByStatus]);
+
+  function filterItems(items: ActionItem[]) {
+    if (personFilter === "all") return items;
+    return items.filter((i) => i.person_name === personFilter);
+  }
+
   if (loading) {
     return <div className="text-muted-foreground">Loading...</div>;
   }
 
   function renderGrouped(items: ActionItem[], emptyMessage: string) {
-    if (!items || items.length === 0) {
+    const filtered = filterItems(items);
+    if (!filtered || filtered.length === 0) {
       return <p className="text-muted-foreground">{emptyMessage}</p>;
     }
-    const grouped = groupByPerson(items);
+    // If filtering by person, skip the grouping
+    if (personFilter !== "all") {
+      return (
+        <div className="space-y-2">
+          {filtered.map((item) => (
+            <ActionItemCard
+              key={item.id}
+              item={item}
+              onUpdate={fetchData}
+              showPerson={false}
+            />
+          ))}
+        </div>
+      );
+    }
+    const grouped = groupByPerson(filtered);
     return Object.entries(grouped).map(([personName, personItems]) => (
       <Card key={personName}>
         <CardHeader>
@@ -82,17 +123,33 @@ export default function WaitingOnPage() {
     ));
   }
 
-  const openCount = (itemsByStatus.open || []).length;
+  const openCount = filterItems(itemsByStatus.open || []).length;
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Waiting On ({openCount})</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Waiting On ({openCount})</h1>
+        <Select value={personFilter} onValueChange={setPersonFilter}>
+          <SelectTrigger className="w-[200px]">
+            <UsersIcon className="w-3.5 h-3.5 mr-1.5" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All people</SelectItem>
+            {allPeople.map((name) => (
+              <SelectItem key={name} value={name}>
+                {name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <Tabs defaultValue="open">
         <TabsList>
           {STATUSES.map((s) => (
             <TabsTrigger key={s} value={s}>
-              {STATUS_LABELS[s]} ({(itemsByStatus[s] || []).length})
+              {STATUS_LABELS[s]} ({filterItems(itemsByStatus[s] || []).length})
             </TabsTrigger>
           ))}
         </TabsList>

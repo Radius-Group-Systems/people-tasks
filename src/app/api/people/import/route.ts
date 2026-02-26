@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { query, getMany } from "@/lib/db";
 import { parseVCards, VCardContact } from "@/lib/vcard";
+import { writeFile, mkdir } from "fs/promises";
+import { join } from "path";
+
+const PHOTO_DIR = join(process.cwd(), "public", "uploads", "photos");
 
 interface ImportContact extends VCardContact {
   slack_handle?: string | null;
@@ -59,15 +63,30 @@ export async function POST(req: NextRequest) {
       continue;
     }
 
+    let photoUrl: string | null = null;
+
+    // Save embedded photo if present
+    if (contact.photoBase64) {
+      try {
+        await mkdir(PHOTO_DIR, { recursive: true });
+        const ext = contact.photoMimeType?.includes("png") ? "png" : "jpg";
+        const filename = `${Date.now()}-import-${imported}.${ext}`;
+        const buffer = Buffer.from(contact.photoBase64, "base64");
+        await writeFile(join(PHOTO_DIR, filename), buffer);
+        photoUrl = `/uploads/photos/${filename}`;
+      } catch { /* skip photo on error */ }
+    }
+
     await query(
-      `INSERT INTO people (name, email, phone, slack_handle, organization)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO people (name, email, phone, slack_handle, organization, photo_url)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         contact.name.trim(),
         contact.email || null,
         contact.phone || null,
         contact.slack_handle || null,
         contact.organization || null,
+        photoUrl,
       ]
     );
 

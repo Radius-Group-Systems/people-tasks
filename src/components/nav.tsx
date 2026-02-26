@@ -9,6 +9,7 @@ const navItems = [
   { href: "/people", label: "People" },
   { href: "/tasks", label: "My Tasks" },
   { href: "/waiting", label: "Waiting On" },
+  { href: "/encounters", label: "Encounters" },
   { href: "/import", label: "Import" },
   { href: "/search", label: "Search" },
 ];

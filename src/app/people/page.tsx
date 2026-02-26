@@ -5,7 +5,6 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
   DialogContent,
@@ -16,6 +15,9 @@ import {
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Person } from "@/lib/types";
+import { PersonAvatar } from "@/components/person-avatar";
+import { SearchIcon, ClipboardListIcon, ClockIcon, CheckCircle2Icon, AlertTriangleIcon } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface ImportContact {
   name: string;
@@ -26,6 +28,21 @@ interface ImportContact {
 }
 
 type ImportStep = "search" | "review";
+
+function timeAgo(date: Date): string {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks}w ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
+}
 
 export default function PeoplePage() {
   const [people, setPeople] = useState<Person[]>([]);
@@ -531,43 +548,150 @@ export default function PeoplePage() {
         </div>
       </div>
 
-      <Input
-        placeholder="Search people..."
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
+      <div className="relative">
+        <SearchIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Search people..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtered.map((person) => (
-          <Link key={person.id} href={`/people/${person.id}`}>
-            <Card className="hover:border-primary/50 transition-colors cursor-pointer">
-              <CardContent className="pt-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="font-semibold">{person.name}</h3>
-                    {person.organization && (
-                      <p className="text-sm text-muted-foreground">
-                        {person.organization}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-1">
-                    {(person.open_items_count ?? 0) > 0 && (
-                      <Badge variant="secondary">
-                        {person.open_items_count} tasks
-                      </Badge>
-                    )}
-                    {(person.waiting_on_count ?? 0) > 0 && (
-                      <Badge variant="outline">
-                        {person.waiting_on_count} waiting
-                      </Badge>
-                    )}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+        {filtered.map((person) => {
+          const tasks = person.open_items_count ?? 0;
+          const waiting = person.waiting_on_count ?? 0;
+          const inProgress = person.in_progress_count ?? 0;
+          const done = person.done_count ?? 0;
+          const totalActive = tasks + waiting + inProgress;
+          const encounters = person.encounter_count ?? 0;
+
+          // Time since last encounter
+          const lastMet = person.last_encounter_at
+            ? timeAgo(new Date(person.last_encounter_at))
+            : null;
+          const daysSinceContact = person.last_encounter_at
+            ? Math.floor((Date.now() - new Date(person.last_encounter_at).getTime()) / 86400000)
+            : Infinity;
+
+          // Attention level
+          const needsCheckin = daysSinceContact > 14 && (waiting > 0 || tasks > 0);
+          const highWaiting = waiting >= 4;
+
+          // Avatar ring color
+          const ringColor = needsCheckin || highWaiting
+            ? "ring-amber-400"
+            : totalActive > 0
+              ? "ring-blue-400"
+              : "ring-transparent";
+
+          // Activity bar segments (max 8 for visual scale)
+          const barMax = 8;
+
+          return (
+            <Link key={person.id} href={`/people/${person.id}`}>
+              <div className={cn(
+                "border rounded-lg p-4 hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer h-full",
+                needsCheckin && "border-amber-200 bg-amber-50/30",
+              )}>
+                {/* Top row: avatar + name */}
+                <div className="flex items-start gap-3">
+                  <PersonAvatar
+                    name={person.name}
+                    photoUrl={person.photo_url}
+                    size="md"
+                    ringColor={ringColor}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-semibold text-sm truncate">{person.name}</h3>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {[person.organization, person.email].filter(Boolean).join(" · ") || "\u00A0"}
+                    </p>
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-          </Link>
-        ))}
+
+                {/* Activity bar */}
+                {totalActive > 0 ? (
+                  <div className="mt-3 flex gap-0.5 h-1.5 rounded-full overflow-hidden bg-muted">
+                    {tasks > 0 && (
+                      <div
+                        className="bg-blue-500 rounded-full"
+                        style={{ width: `${Math.min((tasks / barMax) * 100, 100)}%` }}
+                        title={`${tasks} open task${tasks !== 1 ? "s" : ""}`}
+                      />
+                    )}
+                    {inProgress > 0 && (
+                      <div
+                        className="bg-violet-500 rounded-full"
+                        style={{ width: `${Math.min((inProgress / barMax) * 100, 100)}%` }}
+                        title={`${inProgress} in progress`}
+                      />
+                    )}
+                    {waiting > 0 && (
+                      <div
+                        className="bg-amber-500 rounded-full"
+                        style={{ width: `${Math.min((waiting / barMax) * 100, 100)}%` }}
+                        title={`${waiting} waiting`}
+                      />
+                    )}
+                  </div>
+                ) : done > 0 ? (
+                  <div className="mt-3 flex gap-0.5 h-1.5 rounded-full overflow-hidden bg-muted">
+                    <div className="bg-green-400 rounded-full w-full" />
+                  </div>
+                ) : (
+                  <div className="mt-3 h-1.5 rounded-full bg-muted" />
+                )}
+
+                {/* Stats row */}
+                <div className="mt-2.5 flex items-center gap-3 text-xs text-muted-foreground">
+                  {tasks > 0 && (
+                    <span className="flex items-center gap-1">
+                      <ClipboardListIcon className="w-3 h-3 text-blue-500" />
+                      <span className="font-medium text-foreground">{tasks}</span> task{tasks !== 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {waiting > 0 && (
+                    <span className="flex items-center gap-1">
+                      <ClockIcon className="w-3 h-3 text-amber-500" />
+                      <span className={cn("font-medium", highWaiting ? "text-amber-600" : "text-foreground")}>{waiting}</span> waiting
+                    </span>
+                  )}
+                  {done > 0 && tasks === 0 && waiting === 0 && (
+                    <span className="flex items-center gap-1">
+                      <CheckCircle2Icon className="w-3 h-3 text-green-500" />
+                      all clear
+                    </span>
+                  )}
+                  {totalActive === 0 && done === 0 && (
+                    <span className="text-muted-foreground/60">no activity</span>
+                  )}
+                </div>
+
+                {/* Last met + attention */}
+                <div className="mt-1.5 flex items-center gap-2 text-xs">
+                  {lastMet ? (
+                    <span className={cn(
+                      "text-muted-foreground",
+                      daysSinceContact > 14 && "text-amber-600",
+                    )}>
+                      {encounters} meeting{encounters !== 1 ? "s" : ""} · last {lastMet}
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground/60">no meetings yet</span>
+                  )}
+                  {needsCheckin && (
+                    <span className="flex items-center gap-0.5 text-amber-600 font-medium">
+                      <AlertTriangleIcon className="w-3 h-3" />
+                      check in
+                    </span>
+                  )}
+                </div>
+              </div>
+            </Link>
+          );
+        })}
       </div>
 
       {filtered.length === 0 && (

@@ -59,11 +59,25 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const result = await query("DELETE FROM people WHERE id = $1", [id]);
 
-  if (result.rowCount === 0) {
+  // Check if person exists
+  const person = await getOne("SELECT id FROM people WHERE id = $1", [id]);
+  if (!person) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
+
+  // Cascade: nullify references in action_items
+  await query("UPDATE action_items SET person_id = NULL WHERE person_id = $1", [id]);
+  await query("UPDATE action_items SET source_person_id = NULL WHERE source_person_id = $1", [id]);
+
+  // Remove from encounter_participants
+  await query("DELETE FROM encounter_participants WHERE person_id = $1", [id]);
+
+  // Remove embeddings referencing this person
+  await query("DELETE FROM embeddings WHERE source_type = 'person' AND source_id = $1", [id]);
+
+  // Delete the person
+  await query("DELETE FROM people WHERE id = $1", [id]);
 
   return NextResponse.json({ success: true });
 }

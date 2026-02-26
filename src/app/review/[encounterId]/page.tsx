@@ -59,8 +59,11 @@ export default function ReviewPage() {
     setExtracting(true);
     setError(null);
     try {
+      const userPersonId = localStorage.getItem("my-person-id");
       const res = await fetch(`/api/encounters/${encounterId}/extract`, {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_person_id: userPersonId }),
       });
       if (!res.ok) {
         const err = await res.json();
@@ -259,12 +262,12 @@ export default function ReviewPage() {
                       updateItem(index, { owner_type: v as "me" | "them" })
                     }
                   >
-                    <SelectTrigger className="w-[120px]">
+                    <SelectTrigger className="w-[160px]">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="me">I do it</SelectItem>
-                      <SelectItem value="them">They do it</SelectItem>
+                      <SelectItem value="me">My task</SelectItem>
+                      <SelectItem value="them">Their task</SelectItem>
                     </SelectContent>
                   </Select>
                   <Select
@@ -346,8 +349,21 @@ export default function ReviewPage() {
                         {item.priority}
                       </Badge>
                     )}
-                    <Badge variant="outline">
-                      {item.owner_type === "me" ? "I do it" : "They do it"}
+                    <Badge
+                      variant="outline"
+                      className={
+                        item.owner_type === "me"
+                          ? "border-blue-300 text-blue-700 bg-blue-50"
+                          : "border-amber-300 text-amber-700 bg-amber-50"
+                      }
+                    >
+                      {item.owner_type === "me"
+                        ? item.person_name
+                          ? `My task → for ${item.person_name}`
+                          : "My task"
+                        : item.person_name
+                          ? `${item.person_name} does this`
+                          : "They do it"}
                     </Badge>
                   </div>
                   {item.description && (
@@ -356,7 +372,6 @@ export default function ReviewPage() {
                     </p>
                   )}
                   <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                    {item.person_name && <span>{item.person_name}</span>}
                     {item.due_hint && <span>Due: {item.due_hint}</span>}
                   </div>
                 </div>

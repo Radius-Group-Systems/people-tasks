@@ -219,7 +219,12 @@ export function ActionItemCard({
             </p>
           )}
           <div className="flex items-center gap-2 mt-1 text-sm text-muted-foreground">
-            {showPerson && item.person_name && <span>{item.person_name}</span>}
+            {showPerson && item.person_name && (
+              <span>
+                {item.owner_type === "me" ? "for " : ""}
+                {item.person_name}
+              </span>
+            )}
             {item.due_trigger === "next_meeting" && (
               <Badge variant="outline" className="text-xs font-normal">
                 due next meeting
@@ -229,9 +234,6 @@ export function ActionItemCard({
               <span className={cn(isOverdue && "text-red-600 font-medium")}>
                 Due {new Date(item.due_at).toLocaleDateString()}
               </span>
-            )}
-            {item.encounter_title && (
-              <span>from: {item.encounter_title}</span>
             )}
           </div>
         </div>
@@ -540,10 +542,14 @@ function ActionItemModal({
                 ))}
               </SelectContent>
             </Select>
-            {item.encounter_title && (
-              <span className="text-xs text-muted-foreground ml-2">
+            {item.encounter_title && item.encounter_id && (
+              <a
+                href={`/encounters/${item.encounter_id}`}
+                onClick={(e) => e.stopPropagation()}
+                className="text-xs text-muted-foreground hover:text-primary hover:underline ml-2 transition-colors"
+              >
                 in {item.encounter_title}
-              </span>
+              </a>
             )}
           </div>
 

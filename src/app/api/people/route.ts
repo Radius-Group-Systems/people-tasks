@@ -6,10 +6,20 @@ export async function GET() {
   const people = await getMany<Person>(`
     SELECT p.*,
       COUNT(CASE WHEN ai.owner_type = 'me' AND ai.status = 'open' THEN 1 END)::int AS open_items_count,
-      COUNT(CASE WHEN ai.owner_type = 'them' AND ai.status = 'open' THEN 1 END)::int AS waiting_on_count
+      COUNT(CASE WHEN ai.owner_type = 'them' AND ai.status = 'open' THEN 1 END)::int AS waiting_on_count,
+      COUNT(CASE WHEN ai.status = 'in_progress' THEN 1 END)::int AS in_progress_count,
+      COUNT(CASE WHEN ai.status = 'done' THEN 1 END)::int AS done_count,
+      enc_stats.last_encounter_at,
+      COALESCE(enc_stats.encounter_count, 0)::int AS encounter_count
     FROM people p
     LEFT JOIN action_items ai ON ai.person_id = p.id
-    GROUP BY p.id
+    LEFT JOIN LATERAL (
+      SELECT MAX(e.occurred_at) AS last_encounter_at, COUNT(*)::int AS encounter_count
+      FROM encounter_participants ep
+      JOIN encounters e ON e.id = ep.encounter_id
+      WHERE ep.person_id = p.id
+    ) enc_stats ON true
+    GROUP BY p.id, enc_stats.last_encounter_at, enc_stats.encounter_count
     ORDER BY p.name
   `);
   return NextResponse.json(people);
