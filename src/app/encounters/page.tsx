@@ -37,6 +37,8 @@ import {
   PlusIcon,
   GripVerticalIcon,
   XIcon,
+  MailIcon,
+  PaperclipIcon,
 } from "lucide-react";
 
 interface EncounterRow {
@@ -54,6 +56,8 @@ interface EncounterRow {
   participant_count: number;
   action_item_count: number;
   participant_names: string | null;
+  email_from: { name: string; address: string } | null;
+  email_attachments: { name: string; content_type: string; size: number; path: string }[] | null;
 }
 
 const typeLabels: Record<string, string> = {
@@ -554,7 +558,10 @@ export default function EncountersPage() {
             {/* Main content */}
             <Link href={`/encounters/${enc.id}`} className="flex-1 min-w-0" draggable={false}>
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-medium truncate">{enc.title}</span>
+                {enc.encounter_type === "email" && (
+                  <MailIcon className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                )}
+                <span className="font-semibold text-foreground truncate">{enc.title}</span>
                 <Badge
                   variant="secondary"
                   className={cn("text-xs flex-shrink-0", typeColors[enc.encounter_type])}
@@ -575,13 +582,21 @@ export default function EncountersPage() {
                 )}
               </div>
 
-              {enc.summary && (
-                <p className="text-sm text-muted-foreground line-clamp-1 mb-1.5">
+              {/* For emails: show from address. For others: show summary */}
+              {enc.encounter_type === "email" && enc.email_from ? (
+                <p className="text-sm text-foreground/70 line-clamp-1 mb-1.5">
+                  From {enc.email_from.name || enc.email_from.address}
+                  {enc.email_from.name && (
+                    <span className="text-foreground/40"> &lt;{enc.email_from.address}&gt;</span>
+                  )}
+                </p>
+              ) : enc.summary ? (
+                <p className="text-sm text-foreground/70 line-clamp-1 mb-1.5">
                   {enc.summary}
                 </p>
-              )}
+              ) : null}
 
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-4 text-xs text-foreground/50">
                 <span className="flex items-center gap-1">
                   <CalendarIcon className="w-3 h-3" />
                   {formatDate(enc.occurred_at)} at {formatTime(enc.occurred_at)}
@@ -593,12 +608,18 @@ export default function EncountersPage() {
                   </span>
                 )}
                 {enc.action_item_count > 0 && (
-                  <span className="flex items-center gap-1">
+                  <span className="flex items-center gap-1 text-foreground/70">
                     <ListChecksIcon className="w-3 h-3" />
                     {enc.action_item_count} task{enc.action_item_count !== 1 ? "s" : ""}
                   </span>
                 )}
-                {enc.raw_transcript && (
+                {enc.email_attachments && enc.email_attachments.length > 0 && (
+                  <span className="flex items-center gap-1">
+                    <PaperclipIcon className="w-3 h-3" />
+                    {enc.email_attachments.length} file{enc.email_attachments.length !== 1 ? "s" : ""}
+                  </span>
+                )}
+                {enc.raw_transcript && enc.encounter_type !== "email" && (
                   <span className="flex items-center gap-1">
                     <FileTextIcon className="w-3 h-3" />
                     Transcript

@@ -12,7 +12,7 @@ export async function GET(
       COUNT(CASE WHEN ai.owner_type = 'me' AND ai.status = 'open' THEN 1 END)::int AS open_items_count,
       COUNT(CASE WHEN ai.owner_type = 'them' AND ai.status = 'open' THEN 1 END)::int AS waiting_on_count
     FROM people p
-    LEFT JOIN action_items ai ON ai.person_id = p.id
+    LEFT JOIN action_items ai ON ai.person_id = p.id OR ai.source_person_id = p.id
     WHERE p.id = $1
     GROUP BY p.id`,
     [id]
@@ -31,20 +31,39 @@ export async function PATCH(
 ) {
   const { id } = await params;
   const body = await req.json();
-  const { name, email, phone, slack_handle, organization, notes } = body;
+
+  // Build dynamic SET clause — only update fields present in the body
+  const fields: string[] = [];
+  const values: unknown[] = [id];
+  let idx = 2;
+
+  // String fields — empty string → null
+  const stringFields = ["name", "email", "phone", "slack_handle", "organization", "notes", "prep_notes", "next_meeting_at"] as const;
+  for (const key of stringFields) {
+    if (key in body) {
+      fields.push(`${key} = $${idx++}`);
+      values.push(body[key] || null);
+    }
+  }
+
+  // JSON fields — store as-is
+  const jsonFields = ["talking_points"] as const;
+  for (const key of jsonFields) {
+    if (key in body) {
+      fields.push(`${key} = $${idx++}`);
+      values.push(JSON.stringify(body[key]));
+    }
+  }
+
+  if (fields.length === 0) {
+    return NextResponse.json({ error: "No fields to update" }, { status: 400 });
+  }
+
+  fields.push("updated_at = NOW()");
 
   const result = await query<Person>(
-    `UPDATE people SET
-      name = COALESCE($2, name),
-      email = COALESCE($3, email),
-      phone = COALESCE($4, phone),
-      slack_handle = COALESCE($5, slack_handle),
-      organization = COALESCE($6, organization),
-      notes = COALESCE($7, notes),
-      updated_at = NOW()
-    WHERE id = $1
-    RETURNING *`,
-    [id, name, email, phone, slack_handle, organization, notes]
+    `UPDATE people SET ${fields.join(", ")} WHERE id = $1 RETURNING *`,
+    values
   );
 
   if (result.rowCount === 0) {

@@ -2,6 +2,13 @@ import { NextRequest, NextResponse } from "next/server";
 import { getOne, getMany, query } from "@/lib/db";
 import { Encounter, ActionItem } from "@/lib/types";
 import { embedEncounter } from "@/lib/embeddings";
+import { toNoonUTC } from "@/lib/date-utils";
+
+interface ChecklistItem {
+  id: string;
+  text: string;
+  done: boolean;
+}
 
 interface ConfirmItem {
   title: string;
@@ -11,6 +18,7 @@ interface ConfirmItem {
   person_id?: number | null;
   priority?: string;
   due_hint?: string | null;
+  checklist?: ChecklistItem[];
 }
 
 /**
@@ -102,7 +110,12 @@ export async function POST(
           // Try to parse as a date
           const parsed = Date.parse(item.due_hint);
           if (!isNaN(parsed)) {
-            dueAt = new Date(parsed).toISOString();
+            // Use noon UTC to avoid timezone day-shift
+            const d = new Date(parsed);
+            const yyyy = d.getUTCFullYear();
+            const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+            const dd = String(d.getUTCDate()).padStart(2, "0");
+            dueAt = toNoonUTC(`${yyyy}-${mm}-${dd}`);
             dueTrigger = "date";
           }
           // Otherwise just store as description context
@@ -112,7 +125,7 @@ export async function POST(
       const result = await query<ActionItem>(
         `INSERT INTO action_items
           (title, description, owner_type, person_id, encounter_id, priority, due_at, due_trigger, checklist, links, attachments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, '[]', '[]', '[]')
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '[]', '[]')
          RETURNING *`,
         [
           item.title,
@@ -123,6 +136,7 @@ export async function POST(
           item.priority || "normal",
           dueAt,
           dueTrigger,
+          JSON.stringify(item.checklist || []),
         ]
       );
       createdItems.push(result.rows[0]);

@@ -10,7 +10,9 @@ export async function GET(req: NextRequest) {
 
   if (personId) {
     encounters = await getMany(`
-      SELECT e.*,
+      SELECT e.id, e.title, e.encounter_type, e.occurred_at, e.summary, e.raw_transcript,
+        e.source, e.source_file_path, e.folder_id, e.notes, e.email_message_id,
+        e.email_from, e.email_attachments, e.created_at,
         (SELECT COUNT(*) FROM encounter_participants ep2 WHERE ep2.encounter_id = e.id)::int AS participant_count,
         (SELECT COUNT(*) FROM action_items ai WHERE ai.encounter_id = e.id)::int AS action_item_count,
         (SELECT STRING_AGG(p.name, ', ' ORDER BY p.name) FROM people p JOIN encounter_participants ep3 ON ep3.person_id = p.id WHERE ep3.encounter_id = e.id) AS participant_names,
@@ -24,7 +26,9 @@ export async function GET(req: NextRequest) {
     `, [personId]);
   } else {
     encounters = await getMany(`
-      SELECT e.*,
+      SELECT e.id, e.title, e.encounter_type, e.occurred_at, e.summary, e.raw_transcript,
+        e.source, e.source_file_path, e.folder_id, e.notes, e.email_message_id,
+        e.email_from, e.email_attachments, e.created_at,
         (SELECT COUNT(*) FROM encounter_participants ep WHERE ep.encounter_id = e.id)::int AS participant_count,
         (SELECT COUNT(*) FROM action_items ai WHERE ai.encounter_id = e.id)::int AS action_item_count,
         (SELECT STRING_AGG(p.name, ', ' ORDER BY p.name) FROM people p JOIN encounter_participants ep2 ON ep2.person_id = p.id WHERE ep2.encounter_id = e.id) AS participant_names,

@@ -128,14 +128,15 @@ export default function ImportPage() {
   function handleAddMe() {
     const storedId = localStorage.getItem(MY_PERSON_KEY);
     if (storedId) {
-      const me = people.find((p) => p.id === parseInt(storedId));
+      // Match with loose comparison since API may return id as number or string
+      const me = people.find((p) => String(p.id) === String(storedId));
       if (me && !selectedPeople.some((s) => s.id === me.id)) {
         setSelectedPeople((prev) => [...prev, me]);
+        return;
       }
-    } else {
-      // No stored ID — show the search so user picks themselves
-      setPeopleSearch("(pick yourself)");
     }
+    // No stored ID or person not found — show the picker
+    setPeopleSearch("(pick yourself)");
   }
 
   function selectPerson(p: Person, setAsMe = false) {

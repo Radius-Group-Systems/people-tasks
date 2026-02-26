@@ -14,19 +14,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Person } from "@/lib/types";
-import { CheckIcon, XIcon, PencilIcon, SparklesIcon } from "lucide-react";
+import { PersonPicker } from "@/components/person-picker";
+import { Person, ChecklistItem } from "@/lib/types";
+import {
+  CheckIcon,
+  PencilIcon,
+  SparklesIcon,
+  ChevronDownIcon,
+  ChevronRightIcon,
+  ListChecksIcon,
+  MessageSquareIcon,
+} from "lucide-react";
+
+interface DiscussionPoint {
+  viewpoint: string;
+  supporting_detail: string | null;
+}
 
 interface ExtractedItem {
   title: string;
   description: string | null;
   owner_type: "me" | "them";
   person_name: string | null;
+  person_id: string; // person id as string for PersonPicker, or ""
   priority: "low" | "normal" | "high" | "urgent";
   due_hint: string | null;
+  checklist: ChecklistItem[];
+  discussion_points?: DiscussionPoint[];
   // UI state
   accepted: boolean;
   editing: boolean;
+  showDiscussion: boolean;
 }
 
 interface ExtractionData {
@@ -34,6 +52,7 @@ interface ExtractionData {
   summary: string;
   participants: string[];
   action_items: ExtractedItem[];
+  user_name: string | null;
 }
 
 const priorityColors: Record<string, string> = {
@@ -71,11 +90,30 @@ export default function ReviewPage() {
       }
       const result: ExtractionData = await res.json();
       setData(result);
+
+      // Load people to resolve names → IDs
+      let peopleList: Person[] = [];
+      try {
+        const pRes = await fetch("/api/people");
+        if (pRes.ok) {
+          peopleList = await pRes.json();
+          setPeople(peopleList);
+        }
+      } catch { /* non-critical */ }
+
+      const nameToId = new Map(
+        peopleList.map((p) => [p.name.toLowerCase(), p.id.toString()])
+      );
+
       setItems(
         result.action_items.map((item) => ({
           ...item,
+          person_id: item.person_name
+            ? nameToId.get(item.person_name.toLowerCase()) || ""
+            : "",
           accepted: true,
           editing: false,
+          showDiscussion: false,
         }))
       );
     } catch (err) {
@@ -88,10 +126,6 @@ export default function ReviewPage() {
 
   useEffect(() => {
     runExtraction();
-    fetch("/api/people")
-      .then((r) => r.json())
-      .then(setPeople)
-      .catch(console.error);
   }, [runExtraction]);
 
   function toggleAccepted(index: number) {
@@ -110,11 +144,56 @@ export default function ReviewPage() {
     );
   }
 
+  function toggleDiscussion(index: number) {
+    setItems((prev) =>
+      prev.map((item, i) =>
+        i === index ? { ...item, showDiscussion: !item.showDiscussion } : item
+      )
+    );
+  }
+
   function updateItem(index: number, updates: Partial<ExtractedItem>) {
     setItems((prev) =>
       prev.map((item, i) =>
         i === index ? { ...item, ...updates } : item
       )
+    );
+  }
+
+  function updateChecklistItem(itemIndex: number, checkIndex: number, text: string) {
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== itemIndex) return item;
+        const checklist = item.checklist.map((c, j) =>
+          j === checkIndex ? { ...c, text } : c
+        );
+        return { ...item, checklist };
+      })
+    );
+  }
+
+  function removeChecklistItem(itemIndex: number, checkIndex: number) {
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== itemIndex) return item;
+        const checklist = item.checklist.filter((_, j) => j !== checkIndex);
+        return { ...item, checklist };
+      })
+    );
+  }
+
+  function addChecklistItem(itemIndex: number) {
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== itemIndex) return item;
+        return {
+          ...item,
+          checklist: [
+            ...item.checklist,
+            { id: crypto.randomUUID(), text: "", done: false },
+          ],
+        };
+      })
     );
   }
 
@@ -131,13 +210,15 @@ export default function ReviewPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          items: acceptedItems.map(({ title, description, owner_type, person_name, priority, due_hint }) => ({
+          items: acceptedItems.map(({ title, description, owner_type, person_name, person_id, priority, due_hint, checklist }) => ({
             title,
             description,
             owner_type,
             person_name,
+            person_id: person_id ? parseInt(person_id) : null,
             priority,
             due_hint,
+            checklist: checklist.filter((c) => c.text.trim()),
           })),
           participants: data?.participants || [],
         }),
@@ -156,6 +237,7 @@ export default function ReviewPage() {
   }
 
   const acceptedCount = items.filter((i) => i.accepted).length;
+  const totalSubtasks = items.filter((i) => i.accepted).reduce((sum, item) => sum + item.checklist.length, 0);
 
   if (extracting) {
     return (
@@ -165,7 +247,7 @@ export default function ReviewPage() {
           <SparklesIcon className="w-5 h-5 text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
         </div>
         <p className="text-lg font-medium">Analyzing transcript...</p>
-        <p className="text-sm text-muted-foreground">Claude is extracting action items from your meeting</p>
+        <p className="text-sm text-muted-foreground">Claude is building a structured summary of your meeting</p>
       </div>
     );
   }
@@ -188,12 +270,12 @@ export default function ReviewPage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-3xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Review Extracted Items</h1>
+          <h1 className="text-2xl font-bold">Review Meeting Topics</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {items.length} action items found — {acceptedCount} selected
+            {items.length} topics found — {acceptedCount} selected as tasks with {totalSubtasks} subtasks
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -201,7 +283,7 @@ export default function ReviewPage() {
             Skip
           </Button>
           <Button onClick={handleConfirm} disabled={saving}>
-            {saving ? "Saving..." : `Confirm ${acceptedCount} Items`}
+            {saving ? "Saving..." : `Create ${acceptedCount} Tasks`}
           </Button>
         </div>
       </div>
@@ -228,24 +310,86 @@ export default function ReviewPage() {
         <p className="text-sm text-red-600">{error}</p>
       )}
 
-      {/* Action items list */}
-      <div className="space-y-2">
+      {/* Topics as tasks */}
+      <div className="space-y-3">
         {items.map((item, index) => (
           <div
             key={index}
             className={cn(
-              "border rounded-lg p-4 transition-all",
+              "border rounded-lg overflow-hidden transition-all",
               !item.accepted && "opacity-40"
             )}
           >
-            {item.editing ? (
-              // Edit mode
-              <div className="space-y-3">
+            {/* Topic header */}
+            <div className={cn(
+              "px-4 py-3 flex items-start gap-3",
+              item.accepted ? "bg-muted/20" : "bg-muted/5"
+            )}>
+              <button
+                onClick={() => toggleAccepted(index)}
+                className={cn(
+                  "mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 transition-colors flex items-center justify-center",
+                  item.accepted
+                    ? "bg-green-500 border-green-500 text-white"
+                    : "border-gray-300 hover:border-green-400"
+                )}
+              >
+                {item.accepted && (
+                  <CheckIcon className="w-3 h-3" />
+                )}
+              </button>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-xs flex items-center justify-center flex-shrink-0 font-medium">
+                    {index + 1}
+                  </span>
+                  <span className="font-semibold">{item.title}</span>
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "text-xs",
+                      item.owner_type === "me"
+                        ? "border-blue-300 text-blue-700 bg-blue-50"
+                        : "border-amber-300 text-amber-700 bg-amber-50"
+                    )}
+                  >
+                    {item.owner_type === "me"
+                      ? item.person_name
+                        ? `My task → for ${item.person_name}`
+                        : "My task"
+                      : item.person_name
+                        ? `${item.person_name} does this`
+                        : "They do it"}
+                  </Badge>
+                  {item.priority !== "normal" && (
+                    <Badge className={priorityColors[item.priority]} variant="secondary">
+                      {item.priority}
+                    </Badge>
+                  )}
+                </div>
+                {/* Description (conclusion) */}
+                {item.description && (
+                  <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">
+                    {item.description}
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={() => toggleEditing(index)}
+                className="text-muted-foreground hover:text-foreground transition-colors p-1 flex-shrink-0"
+              >
+                <PencilIcon className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Edit controls */}
+            {item.editing && (
+              <div className="px-4 py-3 border-t bg-muted/10 space-y-3">
                 <Input
                   value={item.title}
                   onChange={(e) => updateItem(index, { title: e.target.value })}
                   className="font-medium"
-                  autoFocus
+                  placeholder="Task title"
                 />
                 <Textarea
                   value={item.description || ""}
@@ -253,7 +397,7 @@ export default function ReviewPage() {
                     updateItem(index, { description: e.target.value || null })
                   }
                   placeholder="Description..."
-                  rows={2}
+                  rows={3}
                 />
                 <div className="flex gap-2 flex-wrap">
                   <Select
@@ -288,26 +432,28 @@ export default function ReviewPage() {
                       <SelectItem value="low">Low</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Select
-                    value={item.person_name || "_none"}
-                    onValueChange={(v) =>
+                  <PersonPicker
+                    people={people}
+                    value={item.person_id}
+                    onSelect={(id) => {
+                      const person = people.find((p) => p.id.toString() === id);
                       updateItem(index, {
-                        person_name: v === "_none" ? null : v,
-                      })
-                    }
-                  >
-                    <SelectTrigger className="w-[160px]">
-                      <SelectValue placeholder="Person" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="_none">No person</SelectItem>
-                      {people.map((p) => (
-                        <SelectItem key={p.id} value={p.name}>
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                        person_id: id,
+                        person_name: person?.name || null,
+                      });
+                    }}
+                    onPersonCreated={(newPerson) => {
+                      setPeople((prev) =>
+                        [...prev, newPerson].sort((a, b) => a.name.localeCompare(b.name))
+                      );
+                      updateItem(index, {
+                        person_id: newPerson.id.toString(),
+                        person_name: newPerson.name,
+                      });
+                    }}
+                    placeholder="Person..."
+                    className="w-[160px]"
+                  />
                   <Input
                     value={item.due_hint || ""}
                     onChange={(e) =>
@@ -325,62 +471,82 @@ export default function ReviewPage() {
                   Done editing
                 </Button>
               </div>
-            ) : (
-              // Display mode
-              <div className="flex items-start gap-3">
-                <button
-                  onClick={() => toggleAccepted(index)}
-                  className={cn(
-                    "mt-0.5 w-5 h-5 rounded border-2 flex-shrink-0 transition-colors flex items-center justify-center",
-                    item.accepted
-                      ? "bg-green-500 border-green-500 text-white"
-                      : "border-gray-300 hover:border-green-400"
-                  )}
-                >
-                  {item.accepted && (
-                    <CheckIcon className="w-3 h-3" />
-                  )}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{item.title}</span>
-                    {item.priority !== "normal" && (
-                      <Badge className={priorityColors[item.priority]} variant="secondary">
-                        {item.priority}
-                      </Badge>
-                    )}
-                    <Badge
-                      variant="outline"
-                      className={
-                        item.owner_type === "me"
-                          ? "border-blue-300 text-blue-700 bg-blue-50"
-                          : "border-amber-300 text-amber-700 bg-amber-50"
-                      }
-                    >
-                      {item.owner_type === "me"
-                        ? item.person_name
-                          ? `My task → for ${item.person_name}`
-                          : "My task"
-                        : item.person_name
-                          ? `${item.person_name} does this`
-                          : "They do it"}
-                    </Badge>
-                  </div>
-                  {item.description && (
-                    <p className="text-sm text-muted-foreground mt-0.5">
-                      {item.description}
-                    </p>
-                  )}
-                  <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground">
-                    {item.due_hint && <span>Due: {item.due_hint}</span>}
-                  </div>
+            )}
+
+            {/* Checklist (next steps as subtasks) */}
+            {item.checklist.length > 0 && (
+              <div className="px-4 py-2.5 border-t">
+                <div className="flex items-center gap-1.5 mb-2">
+                  <ListChecksIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                    Subtasks ({item.checklist.length})
+                  </span>
                 </div>
+                <div className="space-y-1">
+                  {item.checklist.map((check, j) => (
+                    <div key={check.id} className="flex items-start gap-2 group/check text-sm">
+                      <span className="text-muted-foreground/50 mt-0.5 flex-shrink-0">-</span>
+                      {item.editing ? (
+                        <div className="flex-1 flex items-center gap-1">
+                          <input
+                            value={check.text}
+                            onChange={(e) => updateChecklistItem(index, j, e.target.value)}
+                            className="flex-1 bg-transparent border-none outline-none text-sm"
+                            placeholder="Subtask..."
+                          />
+                          <button
+                            onClick={() => removeChecklistItem(index, j)}
+                            className="text-muted-foreground/30 hover:text-red-500 text-xs px-1"
+                          >
+                            remove
+                          </button>
+                        </div>
+                      ) : (
+                        <span>{check.text}</span>
+                      )}
+                    </div>
+                  ))}
+                  {item.editing && (
+                    <button
+                      onClick={() => addChecklistItem(index)}
+                      className="text-xs text-muted-foreground hover:text-foreground mt-1 ml-4"
+                    >
+                      + Add subtask
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Discussion context (collapsible) */}
+            {item.discussion_points && item.discussion_points.length > 0 && (
+              <div className="border-t">
                 <button
-                  onClick={() => toggleEditing(index)}
-                  className="text-muted-foreground hover:text-foreground transition-colors p-1"
+                  onClick={() => toggleDiscussion(index)}
+                  className="w-full px-4 py-2 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/10 transition-colors"
                 >
-                  <PencilIcon className="w-4 h-4" />
+                  {item.showDiscussion ? (
+                    <ChevronDownIcon className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronRightIcon className="w-3.5 h-3.5" />
+                  )}
+                  <MessageSquareIcon className="w-3 h-3" />
+                  Discussion context ({item.discussion_points.length} points)
                 </button>
+                {item.showDiscussion && (
+                  <div className="px-4 pb-3 space-y-2">
+                    {item.discussion_points.map((dp, j) => (
+                      <div key={j} className="text-sm">
+                        <p className="text-muted-foreground">{dp.viewpoint}</p>
+                        {dp.supporting_detail && (
+                          <p className="text-muted-foreground/70 text-xs mt-0.5 pl-3 border-l-2 border-muted">
+                            {dp.supporting_detail}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -389,7 +555,7 @@ export default function ReviewPage() {
 
       {items.length === 0 && (
         <div className="text-center py-12 text-muted-foreground">
-          <p>No action items were extracted from this transcript.</p>
+          <p>No topics were found in this transcript.</p>
           <p className="text-sm mt-1">You can still create tasks manually.</p>
         </div>
       )}
@@ -409,7 +575,7 @@ export default function ReviewPage() {
             {items.every((i) => i.accepted) ? "Deselect all" : "Select all"}
           </button>
           <Button onClick={handleConfirm} disabled={saving}>
-            {saving ? "Saving..." : `Confirm ${acceptedCount} Items`}
+            {saving ? "Saving..." : `Create ${acceptedCount} Tasks`}
           </Button>
         </div>
       )}

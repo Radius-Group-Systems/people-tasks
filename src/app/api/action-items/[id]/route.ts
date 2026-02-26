@@ -28,6 +28,8 @@ export async function PATCH(
   const due_at = body.due_at !== undefined ? body.due_at : current.due_at;
   const due_trigger = body.due_trigger !== undefined ? body.due_trigger : current.due_trigger;
   const snoozed_until = body.snoozed_until !== undefined ? body.snoozed_until : current.snoozed_until;
+  const sent_via = body.sent_via !== undefined ? body.sent_via : current.sent_via;
+  const sent_at = body.sent_at !== undefined ? body.sent_at : current.sent_at;
   const checklist = body.checklist !== undefined ? body.checklist : current.checklist;
   const links = body.links !== undefined ? body.links : current.links;
   const attachments = body.attachments !== undefined ? body.attachments : current.attachments;
@@ -53,15 +55,18 @@ export async function PATCH(
       due_trigger = $10,
       snoozed_until = $11,
       completed_at = $12,
-      checklist = $13,
-      links = $14,
-      attachments = $15,
+      sent_via = $13,
+      sent_at = $14,
+      checklist = $15,
+      links = $16,
+      attachments = $17,
       updated_at = NOW()
     WHERE id = $1
     RETURNING *`,
     [
       id, title, description, owner_type, person_id, source_person_id,
       status, priority, due_at, due_trigger, snoozed_until, completed_at,
+      sent_via, sent_at,
       JSON.stringify(checklist || []),
       JSON.stringify(links || []),
       JSON.stringify(attachments || []),

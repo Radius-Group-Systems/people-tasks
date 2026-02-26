@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,7 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Person } from "@/lib/types";
 import { PersonAvatar } from "@/components/person-avatar";
-import { SearchIcon, ClipboardListIcon, ClockIcon, CheckCircle2Icon, AlertTriangleIcon } from "lucide-react";
+import { SearchIcon, ClipboardListIcon, ClockIcon, CheckCircle2Icon, AlertTriangleIcon, SparklesIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ImportContact {
@@ -45,6 +46,7 @@ function timeAgo(date: Date): string {
 }
 
 export default function PeoplePage() {
+  const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
   const [search, setSearch] = useState("");
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -558,7 +560,7 @@ export default function PeoplePage() {
         />
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((person) => {
           const tasks = person.open_items_count ?? 0;
           const waiting = person.waiting_on_count ?? 0;
@@ -686,6 +688,19 @@ export default function PeoplePage() {
                       <AlertTriangleIcon className="w-3 h-3" />
                       check in
                     </span>
+                  )}
+                  {totalActive > 0 && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        router.push(`/prep/${person.id}`);
+                      }}
+                      className="flex items-center gap-0.5 text-primary/60 hover:text-primary font-medium ml-auto transition-colors"
+                    >
+                      <SparklesIcon className="w-3 h-3" />
+                      prep
+                    </button>
                   )}
                 </div>
               </div>

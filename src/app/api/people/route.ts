@@ -12,7 +12,7 @@ export async function GET() {
       enc_stats.last_encounter_at,
       COALESCE(enc_stats.encounter_count, 0)::int AS encounter_count
     FROM people p
-    LEFT JOIN action_items ai ON ai.person_id = p.id
+    LEFT JOIN action_items ai ON ai.person_id = p.id OR ai.source_person_id = p.id
     LEFT JOIN LATERAL (
       SELECT MAX(e.occurred_at) AS last_encounter_at, COUNT(*)::int AS encounter_count
       FROM encounter_participants ep

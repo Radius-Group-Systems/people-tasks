@@ -10,7 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { PersonPicker } from "@/components/person-picker";
 import { Person } from "@/lib/types";
+import { toNoonUTC } from "@/lib/date-utils";
 
 interface QuickCaptureProps {
   onCreated?: () => void;
@@ -22,6 +24,7 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
   const [personId, setPersonId] = useState<string>(
     defaultPersonId ? defaultPersonId.toString() : ""
   );
+  const [forPersonId, setForPersonId] = useState<string>("");
   const [ownerType, setOwnerType] = useState<string>("me");
   const [dueTrigger, setDueTrigger] = useState<string>("none");
   const [dueDate, setDueDate] = useState<string>("");
@@ -36,14 +39,43 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
     if (!defaultPersonId) {
       fetch("/api/people")
         .then((r) => r.json())
-        .then(setPeople)
+        .then((data: Person[]) => {
+          setPeople(data);
+          // Default to "me" if my-person-id is set
+          if (stored) {
+            setPersonId(stored);
+          }
+        })
         .catch(console.error);
     }
   }, [defaultPersonId]);
 
+  function handlePersonCreated(newPerson: Person) {
+    setPeople((prev) => [...prev, newPerson].sort((a, b) => a.name.localeCompare(b.name)));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!title.trim()) return;
+
+    // person_id = the person this task relates to
+    // When on a person's page (defaultPersonId), that person is always the context
+    // Otherwise: "I do it" uses forPersonId, "They do it" uses the Who picker
+    let effectivePersonId: number | null = null;
+    let sourcePersonId: number | null = null;
+
+    if (defaultPersonId) {
+      // On a person's page: the task is always about/for that person
+      effectivePersonId = defaultPersonId;
+      // If "I do it", that person implicitly asked for it
+      if (ownerType === "me") {
+        sourcePersonId = defaultPersonId;
+      }
+    } else if (ownerType === "them") {
+      effectivePersonId = personId ? parseInt(personId) : null;
+    } else {
+      effectivePersonId = forPersonId ? parseInt(forPersonId) : null;
+    }
 
     setSubmitting(true);
     try {
@@ -52,14 +84,17 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           title: title.trim(),
-          person_id: personId && personId !== "_none" ? parseInt(personId) : null,
+          person_id: effectivePersonId,
+          source_person_id: sourcePersonId,
           owner_type: ownerType,
           due_trigger: dueTrigger === "none" ? null : dueTrigger,
-          due_at: dueTrigger === "date" && dueDate ? new Date(dueDate).toISOString() : null,
+          due_at: dueTrigger === "date" && dueDate ? toNoonUTC(dueDate) : null,
         }),
       });
       setTitle("");
-      setPersonId(defaultPersonId ? defaultPersonId.toString() : "");
+      setPersonId(defaultPersonId ? defaultPersonId.toString() : (myPersonId || ""));
+      setForPersonId("");
+      setOwnerType("me");
       setDueTrigger("none");
       setDueDate("");
       onCreated?.();
@@ -80,19 +115,23 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
         autoFocus
       />
       {!defaultPersonId && (
-        <Select value={personId} onValueChange={setPersonId}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Person" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="_none">No person</SelectItem>
-            {people.map((p) => (
-              <SelectItem key={p.id} value={p.id.toString()}>
-                {p.id.toString() === myPersonId ? `${p.name} (Me)` : p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <PersonPicker
+          people={people}
+          value={personId}
+          onSelect={(v) => {
+            setPersonId(v);
+            if (v !== myPersonId) {
+              setOwnerType("them");
+              setForPersonId("");
+            } else {
+              setOwnerType("me");
+            }
+          }}
+          onPersonCreated={handlePersonCreated}
+          placeholder="Who"
+          myPersonId={myPersonId}
+          className="w-[160px]"
+        />
       )}
       <Select value={ownerType} onValueChange={setOwnerType}>
         <SelectTrigger className="w-[120px]">
@@ -103,6 +142,17 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
           <SelectItem value="them">They do it</SelectItem>
         </SelectContent>
       </Select>
+      {ownerType === "me" && !defaultPersonId && (
+        <PersonPicker
+          people={people.filter((p) => p.id.toString() !== myPersonId)}
+          value={forPersonId}
+          onSelect={setForPersonId}
+          onPersonCreated={handlePersonCreated}
+          placeholder="For..."
+          showForPrefix
+          className="w-[140px]"
+        />
+      )}
       <Select value={dueTrigger} onValueChange={setDueTrigger}>
         <SelectTrigger className="w-[150px]">
           <SelectValue />

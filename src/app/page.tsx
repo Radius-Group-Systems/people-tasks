@@ -1,15 +1,29 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { QuickCapture } from "@/components/quick-capture";
 import { ActionItemCard } from "@/components/action-item-card";
-import { ActionItem } from "@/lib/types";
+import { PersonPicker } from "@/components/person-picker";
+import { ActionItem, Person } from "@/lib/types";
+import { UsersIcon } from "lucide-react";
 
 export default function TodayPage() {
   const [myTasks, setMyTasks] = useState<ActionItem[]>([]);
   const [waitingOn, setWaitingOn] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [waitingFilter, setWaitingFilter] = useState("all");
+  const [tasksFilter, setTasksFilter] = useState("all");
+  const [myPersonId, setMyPersonId] = useState<string | null>(null);
+  const [identityChecked, setIdentityChecked] = useState(false);
+  const [people, setPeople] = useState<Person[]>([]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -28,7 +42,44 @@ export default function TodayPage() {
 
   useEffect(() => {
     fetchData();
+    // Check identity
+    const stored = localStorage.getItem("my-person-id");
+    setMyPersonId(stored);
+    setIdentityChecked(true);
+    // Load people for identity picker if needed
+    if (!stored) {
+      fetch("/api/people")
+        .then((r) => r.json())
+        .then(setPeople)
+        .catch(console.error);
+    }
   }, [fetchData]);
+
+  const waitingPeople = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of waitingOn) {
+      if (item.person_name) names.add(item.person_name);
+    }
+    return Array.from(names).sort();
+  }, [waitingOn]);
+
+  const tasksPeople = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of myTasks) {
+      if (item.person_name) names.add(item.person_name);
+    }
+    return Array.from(names).sort();
+  }, [myTasks]);
+
+  const filteredWaiting = waitingFilter === "all"
+    ? waitingOn
+    : waitingOn.filter((i) => i.person_name === waitingFilter);
+
+  const filteredTasks = tasksFilter === "all"
+    ? myTasks
+    : tasksFilter === "_none"
+      ? myTasks.filter((i) => !i.person_name)
+      : myTasks.filter((i) => i.person_name === tasksFilter);
 
   if (loading) {
     return <div className="text-muted-foreground">Loading...</div>;
@@ -48,23 +99,66 @@ export default function TodayPage() {
         </p>
       </div>
 
+      {identityChecked && !myPersonId && people.length > 0 && (
+        <Card className="border-blue-200 bg-blue-50">
+          <CardContent className="py-3 flex items-center gap-3">
+            <span className="text-sm font-medium">Which person are you?</span>
+            <PersonPicker
+              people={people}
+              value=""
+              onSelect={(id) => {
+                localStorage.setItem("my-person-id", id);
+                setMyPersonId(id);
+                // Reload so nav and all components pick up the identity
+                window.location.reload();
+              }}
+              onPersonCreated={(p) => {
+                setPeople((prev) => [...prev, p].sort((a, b) => a.name.localeCompare(b.name)));
+              }}
+              placeholder="Select yourself..."
+              className="w-[200px]"
+            />
+            <span className="text-xs text-muted-foreground">This personalizes your dropdowns and defaults.</span>
+          </CardContent>
+        </Card>
+      )}
+
       <QuickCapture onCreated={fetchData} />
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
-              My Tasks ({myTasks.length})
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">
+                My Tasks ({filteredTasks.length})
+              </CardTitle>
+              {tasksPeople.length > 0 && (
+                <Select value={tasksFilter} onValueChange={setTasksFilter}>
+                  <SelectTrigger className="w-[160px] h-8 text-xs">
+                    <UsersIcon className="w-3 h-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All people</SelectItem>
+                    <SelectItem value="_none">Just me</SelectItem>
+                    {tasksPeople.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        For {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {myTasks.length === 0 ? (
+            {filteredTasks.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 Nothing on your plate. Nice.
               </p>
             ) : (
               <div className="space-y-2">
-                {myTasks.map((item) => (
+                {filteredTasks.map((item) => (
                   <ActionItemCard
                     key={item.id}
                     item={item}
@@ -78,18 +172,36 @@ export default function TodayPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">
-              Waiting On ({waitingOn.length})
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">
+                Waiting On ({filteredWaiting.length})
+              </CardTitle>
+              {waitingPeople.length > 0 && (
+                <Select value={waitingFilter} onValueChange={setWaitingFilter}>
+                  <SelectTrigger className="w-[160px] h-8 text-xs">
+                    <UsersIcon className="w-3 h-3 mr-1" />
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All people</SelectItem>
+                    {waitingPeople.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
-            {waitingOn.length === 0 ? (
+            {filteredWaiting.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No one owes you anything right now.
               </p>
             ) : (
               <div className="space-y-2">
-                {waitingOn.map((item) => (
+                {filteredWaiting.map((item) => (
                   <ActionItemCard
                     key={item.id}
                     item={item}

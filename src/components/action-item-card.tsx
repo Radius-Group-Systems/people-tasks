@@ -29,6 +29,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { toNoonUTC, toDateInputValue, formatDateDisplay, isDateOverdue } from "@/lib/date-utils";
+import { PersonPicker } from "@/components/person-picker";
 import {
   LinkIcon,
   PaperclipIcon,
@@ -37,6 +39,7 @@ import {
   XIcon,
   ListChecksIcon,
   GripVerticalIcon,
+  MailIcon,
 } from "lucide-react";
 
 interface ActionItemCardProps {
@@ -146,8 +149,9 @@ export function ActionItemCard({
 }: ActionItemCardProps) {
   const [open, setOpen] = useState(false);
 
+  const effectiveDue = item.due_at || (item.due_trigger === "next_meeting" ? item.next_meeting_date : null);
   const isOverdue =
-    item.due_at && new Date(item.due_at) < new Date() && item.status === "open";
+    effectiveDue && isDateOverdue(effectiveDue) && item.status === "open";
 
   const hasExtras =
     (item.links?.length > 0) || (item.attachments?.length > 0);
@@ -227,12 +231,12 @@ export function ActionItemCard({
             )}
             {item.due_trigger === "next_meeting" && (
               <Badge variant="outline" className="text-xs font-normal">
-                due next meeting
+                due next meeting{item.next_meeting_date && ` (${formatDateDisplay(item.next_meeting_date)})`}
               </Badge>
             )}
             {item.due_at && item.due_trigger !== "next_meeting" && (
               <span className={cn(isOverdue && "text-red-600 font-medium")}>
-                Due {new Date(item.due_at).toLocaleDateString()}
+                Due {formatDateDisplay(item.due_at)}
               </span>
             )}
           </div>
@@ -275,7 +279,10 @@ function ActionItemModal({
   const [status, setStatus] = useState<string>(item.status);
   const [dueTrigger, setDueTrigger] = useState(item.due_trigger || "none");
   const [dueDate, setDueDate] = useState(
-    item.due_at ? new Date(item.due_at).toISOString().split("T")[0] : ""
+    item.due_at ? toDateInputValue(item.due_at) : ""
+  );
+  const [snoozedUntil, setSnoozedUntil] = useState(
+    item.snoozed_until ? toDateInputValue(item.snoozed_until) : ""
   );
   const [checklist, setChecklist] = useState<ChecklistItem[]>(item.checklist || []);
   const [newCheckText, setNewCheckText] = useState("");
@@ -289,6 +296,8 @@ function ActionItemModal({
   const [uploading, setUploading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendMessage, setSendMessage] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -317,7 +326,11 @@ function ActionItemModal({
       due_trigger: dueTrigger === "none" ? null : dueTrigger,
       due_at:
         dueTrigger === "date" && dueDate
-          ? new Date(dueDate).toISOString()
+          ? toNoonUTC(dueDate)
+          : null,
+      snoozed_until:
+        status === "snoozed" && snoozedUntil
+          ? toNoonUTC(snoozedUntil)
           : null,
       checklist,
       links,
@@ -333,6 +346,26 @@ function ActionItemModal({
     await fetch(`/api/action-items/${item.id}`, { method: "DELETE" });
     onUpdate();
     onClose();
+  }
+
+  async function handleSendEmail() {
+    setSendingEmail(true);
+    setSendMessage(null);
+    try {
+      const res = await fetch("/api/email/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_item_id: item.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Send failed");
+      setSendMessage(`Sent to ${data.sent_to}`);
+      onUpdate();
+    } catch (err) {
+      setSendMessage(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setSendingEmail(false);
+    }
   }
 
   function handleAddCheckItem() {
@@ -417,18 +450,14 @@ function ActionItemModal({
         <div className="flex items-center justify-between px-5 pt-5 pb-2">
           <div className="flex items-center gap-2 min-w-0">
             {showPerson ? (
-              <Select value={personId} onValueChange={(v) => { setPersonId(v); markDirty(); }}>
-                <SelectTrigger className="h-8 w-auto max-w-[200px] gap-1.5 border-none shadow-none px-1 text-sm font-semibold">
-                  <SelectValue placeholder="Assign person" />
-                </SelectTrigger>
-                <SelectContent>
-                  {people.map((p) => (
-                    <SelectItem key={p.id} value={p.id.toString()}>
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <PersonPicker
+                people={people}
+                value={personId}
+                onSelect={(v) => { setPersonId(v); markDirty(); }}
+                onPersonCreated={(p) => setPeople((prev) => [...prev, p])}
+                placeholder="Assign person"
+                className="h-8 border-none shadow-none px-1 text-sm font-semibold"
+              />
             ) : (
               <span className="text-sm font-semibold">{personName}</span>
             )}
@@ -526,22 +555,33 @@ function ActionItemModal({
             </div>
           </div>
 
+          {/* Snooze date (only when snoozed) */}
+          {status === "snoozed" && (
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground w-14">Until</span>
+              <Input
+                type="date"
+                value={snoozedUntil}
+                onChange={(e) => { setSnoozedUntil(e.target.value); markDirty(); }}
+                className="h-7 w-[160px] text-sm"
+              />
+              {!snoozedUntil && (
+                <span className="text-xs text-muted-foreground">Pick a date to auto-resurface</span>
+              )}
+            </div>
+          )}
+
           {/* Row 2: Requested by */}
           <div className="flex items-center gap-1.5">
             <span className="text-xs text-muted-foreground w-14">From</span>
-            <Select value={sourcePersonId} onValueChange={(v) => { setSourcePersonId(v); markDirty(); }}>
-              <SelectTrigger className="h-7 w-auto border-none shadow-none px-1 text-sm">
-                <SelectValue placeholder="Who asked?" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Nobody</SelectItem>
-                {people.map((p) => (
-                  <SelectItem key={p.id} value={p.id.toString()}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <PersonPicker
+              people={people}
+              value={sourcePersonId}
+              onSelect={(v) => { setSourcePersonId(v); markDirty(); }}
+              onPersonCreated={(p) => setPeople((prev) => [...prev, p])}
+              placeholder="Who asked?"
+              className="h-7 border-none shadow-none px-1 text-sm"
+            />
             {item.encounter_title && item.encounter_id && (
               <a
                 href={`/encounters/${item.encounter_id}`}
@@ -560,7 +600,7 @@ function ActionItemModal({
               <span>Completed {timeAgo(item.completed_at)}</span>
             )}
             {item.snoozed_until && status === "snoozed" && (
-              <span>Snooze until {new Date(item.snoozed_until).toLocaleDateString()}</span>
+              <span>Snooze until {formatDateDisplay(item.snoozed_until)}</span>
             )}
             {item.sent_at ? (
               <span>Sent {item.sent_via ? `via ${item.sent_via} ` : ""}{timeAgo(item.sent_at)}</span>
@@ -758,15 +798,37 @@ function ActionItemModal({
           )}
         </div>
 
+        {/* Send email feedback */}
+        {sendMessage && (
+          <div className={cn(
+            "mx-5 mb-2 text-xs px-3 py-1.5 rounded",
+            sendMessage.startsWith("Sent") ? "bg-green-50 text-green-700" : "bg-red-50 text-red-700"
+          )}>
+            {sendMessage}
+          </div>
+        )}
+
         {/* Footer */}
         <div className="border-t px-5 py-3 flex items-center justify-between">
-          <button
-            onClick={() => setConfirmDelete(true)}
-            className="text-sm text-muted-foreground hover:text-red-600 transition-colors flex items-center gap-1.5"
-          >
-            <Trash2Icon className="w-3.5 h-3.5" />
-            Delete
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="text-sm text-muted-foreground hover:text-red-600 transition-colors flex items-center gap-1.5"
+            >
+              <Trash2Icon className="w-3.5 h-3.5" />
+              Delete
+            </button>
+            {ownerType === "them" && (
+              <button
+                onClick={handleSendEmail}
+                disabled={sendingEmail}
+                className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
+              >
+                <MailIcon className="w-3.5 h-3.5" />
+                {sendingEmail ? "Sending..." : item.sent_at ? "Resend" : "Send via email"}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <Button
               size="sm"

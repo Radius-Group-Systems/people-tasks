@@ -1,3 +1,9 @@
+export interface TalkingPoint {
+  id: string;
+  text: string;
+  done: boolean;
+}
+
 export interface Person {
   id: number;
   name: string;
@@ -7,6 +13,9 @@ export interface Person {
   organization: string | null;
   photo_url: string | null;
   notes: string | null;
+  next_meeting_at: string | null;
+  prep_notes: string | null;
+  talking_points: TalkingPoint[];
   created_at: string;
   updated_at: string;
   // Computed fields (from joins)
@@ -26,6 +35,18 @@ export interface EncounterFolder {
   created_at: string;
 }
 
+export interface EmailAddress {
+  name: string;
+  address: string;
+}
+
+export interface EmailAttachment {
+  name: string;
+  content_type: string;
+  size: number;
+  path: string; // relative path in public/uploads/emails/
+}
+
 export interface Encounter {
   id: number;
   title: string;
@@ -38,6 +59,12 @@ export interface Encounter {
   source_file_path: string | null;
   folder_id: number | null;
   notes: string | null;
+  email_message_id: string | null;
+  email_thread_id: string | null;
+  email_from: EmailAddress | null;
+  email_to: EmailAddress[] | null;
+  email_cc: EmailAddress[] | null;
+  email_attachments: EmailAttachment[];
   created_at: string;
   // Joined
   participants?: Person[];
@@ -104,6 +131,7 @@ export interface ActionItem {
   person_name?: string;
   source_person_name?: string;
   encounter_title?: string;
+  next_meeting_date?: string | null;
 }
 
 export interface DelegationChain {
