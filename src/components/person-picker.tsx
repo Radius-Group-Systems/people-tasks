@@ -95,7 +95,7 @@ export function PersonPicker({
     : placeholder;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={true}>
       <PopoverTrigger asChild>
         <Button
           variant="outline"
@@ -107,7 +107,7 @@ export function PersonPicker({
           <ChevronsUpDownIcon className="ml-1 h-3.5 w-3.5 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[220px] p-0" align="start">
+      <PopoverContent className="w-[240px] p-0 z-[60] pointer-events-auto" align="start" onOpenAutoFocus={(e) => e.preventDefault()}>
         <div className="p-2">
           <Input
             ref={inputRef}
@@ -123,7 +123,7 @@ export function PersonPicker({
             className="h-8 text-sm"
           />
         </div>
-        <div className="max-h-[200px] overflow-y-auto">
+        <div className="max-h-[300px] overflow-y-auto overscroll-contain">
           {sorted.map((person) => {
             const isMe = person.id.toString() === myPersonId;
             const isSelected = person.id.toString() === value;

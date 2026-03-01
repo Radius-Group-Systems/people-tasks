@@ -12,7 +12,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionItemCard } from "@/components/action-item-card";
 import { ActionItem } from "@/lib/types";
-import { UsersIcon } from "lucide-react";
+import { UsersIcon, FolderKanbanIcon } from "lucide-react";
 
 const STATUSES = ["open", "in_progress", "snoozed", "done"] as const;
 
@@ -37,6 +37,7 @@ export default function WaitingOnPage() {
   const [itemsByStatus, setItemsByStatus] = useState<Record<string, ActionItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [personFilter, setPersonFilter] = useState("all");
+  const [projectFilter, setProjectFilter] = useState("all");
 
   const fetchData = useCallback(async () => {
     try {
@@ -70,9 +71,22 @@ export default function WaitingOnPage() {
     return Array.from(names).sort();
   }, [itemsByStatus]);
 
+  const allProjects = useMemo(() => {
+    const names = new Set<string>();
+    for (const items of Object.values(itemsByStatus)) {
+      for (const item of items) {
+        if (item.project_name) names.add(item.project_name);
+      }
+    }
+    return Array.from(names).sort();
+  }, [itemsByStatus]);
+
   function filterItems(items: ActionItem[]) {
-    if (personFilter === "all") return items;
-    return items.filter((i) => i.person_name === personFilter);
+    let filtered = items;
+    if (personFilter !== "all") filtered = filtered.filter((i) => i.person_name === personFilter);
+    if (projectFilter === "_none") filtered = filtered.filter((i) => !i.project_name);
+    else if (projectFilter !== "all") filtered = filtered.filter((i) => i.project_name === projectFilter);
+    return filtered;
   }
 
   if (loading) {
@@ -127,22 +141,39 @@ export default function WaitingOnPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">Waiting On ({openCount})</h1>
-        <Select value={personFilter} onValueChange={setPersonFilter}>
-          <SelectTrigger className="w-[200px]">
-            <UsersIcon className="w-3.5 h-3.5 mr-1.5" />
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All people</SelectItem>
-            {allPeople.map((name) => (
-              <SelectItem key={name} value={name}>
-                {name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Select value={personFilter} onValueChange={setPersonFilter}>
+            <SelectTrigger className="w-[200px]">
+              <UsersIcon className="w-3.5 h-3.5 mr-1.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All people</SelectItem>
+              {allPeople.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={projectFilter} onValueChange={setProjectFilter}>
+            <SelectTrigger className="w-[200px]">
+              <FolderKanbanIcon className="w-3.5 h-3.5 mr-1.5" />
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All projects</SelectItem>
+              <SelectItem value="_none">No project</SelectItem>
+              {allProjects.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <Tabs defaultValue="open">

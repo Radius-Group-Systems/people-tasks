@@ -39,8 +39,8 @@ async function ensureUploadDir() {
  * Connect to Gmail via IMAP, fetch emails from the configured label,
  * and import them as encounters with attachments.
  */
-export async function importEmails(maxMessages = 20): Promise<ImportResult> {
-  const settings = await getEmailSettings();
+export async function importEmails(orgId: string, maxMessages = 20): Promise<ImportResult> {
+  const settings = await getEmailSettings(orgId);
   if (!settings) {
     throw new Error("Email not configured. Go to Settings to set up Gmail.");
   }
@@ -180,9 +180,9 @@ export async function importEmails(maxMessages = 20): Promise<ImportResult> {
             `INSERT INTO encounters (
               title, encounter_type, occurred_at, summary, raw_transcript,
               source, email_message_id,
-              email_from, email_to, email_cc, email_attachments
+              email_from, email_to, email_cc, email_attachments, org_id
             )
-            VALUES ($1, 'email', $2, $3, $4, 'email', $5, $6, $7, $8, $9)
+            VALUES ($1, 'email', $2, $3, $4, 'email', $5, $6, $7, $8, $9, $10)
             RETURNING id`,
             [
               email.subject,
@@ -194,6 +194,7 @@ export async function importEmails(maxMessages = 20): Promise<ImportResult> {
               JSON.stringify(email.to),
               JSON.stringify(email.cc),
               JSON.stringify(email.attachments),
+              orgId,
             ]
           );
           const encounterId = encResult.rows[0].id;

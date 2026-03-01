@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { ActionItem, Person } from "@/lib/types";
 import { sendEmail, formatTaskEmail } from "@/lib/email";
 
@@ -8,7 +8,7 @@ import { sendEmail, formatTaskEmail } from "@/lib/email";
  * Send a task to someone via email.
  * Body: { action_item_id: number }
  */
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db, orgId }) => {
   const body = await req.json();
   const { action_item_id, test, to, subject: testSubject, text: testText } = body;
 
@@ -19,11 +19,12 @@ export async function POST(req: NextRequest) {
         to,
         subject: testSubject || "PeopleTasks Test",
         text: testText || "Test email from PeopleTasks",
-      });
+      }, orgId);
       return NextResponse.json({ success: true, message_id: result.messageId });
     } catch (err) {
+      console.error("Test email failed:", err);
       return NextResponse.json(
-        { error: `Failed: ${err instanceof Error ? err.message : "Unknown error"}` },
+        { error: "Failed to send test email. Check your SMTP settings." },
         { status: 500 }
       );
     }
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Load the action item with person info
-  const item = await getOne<ActionItem & { person_email: string | null }>(
+  const item = await db.getOne<ActionItem & { person_email: string | null }>(
     `SELECT ai.*, p.email AS person_email, p.name AS person_name
      FROM action_items ai
      LEFT JOIN people p ON p.id = ai.person_id
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
   // If the task is owner_type=them but person_id points to the requester,
   // try source_person for the email
   if (!recipientEmail && item.source_person_id) {
-    const source = await getOne<Person>(
+    const source = await db.getOne<Person>(
       "SELECT * FROM people WHERE id = $1",
       [item.source_person_id]
     );
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Get the sender's name
-  const senderRow = await getOne<{ value: { from_name: string } }>(
+  const senderRow = await db.getOne<{ value: { from_name: string } }>(
     "SELECT value FROM settings WHERE key = 'email'"
   );
   const fromName = senderRow?.value?.from_name || "PeopleTasks";
@@ -90,10 +91,10 @@ export async function POST(req: NextRequest) {
       subject,
       text,
       html,
-    });
+    }, orgId);
 
     // Update the action item with sent tracking
-    await query(
+    await db.query(
       `UPDATE action_items SET sent_via = 'email', sent_at = NOW(), updated_at = NOW() WHERE id = $1`,
       [action_item_id]
     );
@@ -106,8 +107,8 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("Email send failed:", err);
     return NextResponse.json(
-      { error: `Failed to send email: ${err instanceof Error ? err.message : "Unknown error"}` },
+      { error: "Failed to send email. Check your SMTP settings and recipient address." },
       { status: 500 }
     );
   }
-}
+});

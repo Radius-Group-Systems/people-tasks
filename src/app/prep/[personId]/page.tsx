@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { ActionItemCard } from "@/components/action-item-card";
 import { PersonAvatar } from "@/components/person-avatar";
-import { Person, ActionItem, Encounter, TalkingPoint } from "@/lib/types";
+import { Person, ActionItem, Encounter, TalkingPoint, Project } from "@/lib/types";
 import { toNoonUTC, toDateInputValue, formatDateDisplay } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
 import {
@@ -23,6 +23,7 @@ import {
   CalendarIcon,
   StickyNoteIcon,
   ListIcon,
+  FolderKanbanIcon,
 } from "lucide-react";
 
 interface RelatedContext {
@@ -37,6 +38,7 @@ interface PrepData {
   their_open_items: ActionItem[];
   recent_encounters: Encounter[];
   related_context: RelatedContext[];
+  shared_projects: Project[];
 }
 
 function timeAgo(dateStr: string) {
@@ -180,9 +182,15 @@ export default function MeetingPrepPage({
   if (error) return <div className="text-red-500">{error}</div>;
   if (!data) return <div className="text-muted-foreground">No data found.</div>;
 
-  const { person, my_open_items, their_open_items, recent_encounters, related_context } = data;
+  const { person, my_open_items, their_open_items, recent_encounters, related_context, shared_projects } = data;
   const lastEncounter = recent_encounters[0];
   const pendingPoints = talkingPoints.filter((tp) => !tp.done).length;
+
+  // Tasks due specifically for this next meeting
+  const dueNextMeeting = [
+    ...my_open_items.filter((i) => i.due_trigger === "next_meeting"),
+    ...their_open_items.filter((i) => i.due_trigger === "next_meeting"),
+  ];
 
   return (
     <div className="space-y-6">
@@ -234,6 +242,25 @@ export default function MeetingPrepPage({
           )}
         </CardContent>
       </Card>
+
+      {/* Due for this meeting — prominent callout */}
+      {dueNextMeeting.length > 0 && (
+        <Card className="border-blue-200 bg-blue-50/50">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-lg flex items-center gap-2 text-blue-700">
+              <CalendarIcon className="w-5 h-5" />
+              Due for this meeting ({dueNextMeeting.length})
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {dueNextMeeting.map((item) => (
+                <ActionItemCard key={item.id} item={item} onUpdate={handleTaskUpdate} showPerson={false} />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Left column: Editable prep + tasks */}
@@ -391,6 +418,42 @@ export default function MeetingPrepPage({
                 ) : (
                   <p className="text-sm text-muted-foreground italic">No summary available.</p>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Shared projects */}
+          {shared_projects && shared_projects.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <FolderKanbanIcon className="w-5 h-5" />
+                  Shared Projects ({shared_projects.length})
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {shared_projects.map((proj) => (
+                    <Link
+                      key={proj.id}
+                      href={`/projects/${proj.id}`}
+                      className="flex items-center gap-2 p-2 rounded-lg hover:bg-muted transition-colors"
+                    >
+                      <div
+                        className="w-3 h-3 rounded-full flex-shrink-0"
+                        style={{ backgroundColor: proj.color }}
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{proj.name}</p>
+                        {(proj.open_count ?? 0) > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {proj.open_count} open / {proj.task_count} total
+                          </p>
+                        )}
+                      </div>
+                    </Link>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           )}

@@ -1,39 +1,39 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getMany, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { EncounterFolder } from "@/lib/types";
 
-export async function GET() {
-  const folders = await getMany<EncounterFolder>(
+export const GET = withAuth(async (req, { db }) => {
+  const folders = await db.getMany<EncounterFolder>(
     "SELECT * FROM encounter_folders ORDER BY name"
   );
   return NextResponse.json(folders);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db, orgId }) => {
   const { name, color, parent_id } = await req.json();
 
   if (!name?.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  const result = await query<EncounterFolder>(
-    `INSERT INTO encounter_folders (name, color, parent_id)
-     VALUES ($1, $2, $3)
+  const result = await db.query<EncounterFolder>(
+    `INSERT INTO encounter_folders (name, color, parent_id, org_id)
+     VALUES ($1, $2, $3, $4)
      RETURNING *`,
-    [name.trim(), color || "#6b7280", parent_id || null]
+    [name.trim(), color || "#6b7280", parent_id || null, orgId]
   );
 
   return NextResponse.json(result.rows[0], { status: 201 });
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withAuth(async (req, { db }) => {
   const { id, name, color } = await req.json();
 
   if (!id) {
     return NextResponse.json({ error: "ID is required" }, { status: 400 });
   }
 
-  const result = await query<EncounterFolder>(
+  const result = await db.query<EncounterFolder>(
     `UPDATE encounter_folders
      SET name = COALESCE($2, name), color = COALESCE($3, color)
      WHERE id = $1
@@ -46,9 +46,9 @@ export async function PATCH(req: NextRequest) {
   }
 
   return NextResponse.json(result.rows[0]);
-}
+});
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = withAuth(async (req, { db }) => {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get("id");
 
@@ -57,8 +57,8 @@ export async function DELETE(req: NextRequest) {
   }
 
   // Unlink encounters from folder before deleting
-  await query("UPDATE encounters SET folder_id = NULL WHERE folder_id = $1", [id]);
-  await query("DELETE FROM encounter_folders WHERE id = $1", [id]);
+  await db.query("UPDATE encounters SET folder_id = NULL WHERE folder_id = $1", [id]);
+  await db.query("DELETE FROM encounter_folders WHERE id = $1", [id]);
 
   return NextResponse.json({ success: true });
-}
+});

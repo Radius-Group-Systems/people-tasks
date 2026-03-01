@@ -15,19 +15,20 @@ interface EmailSettings {
   imap_label: string; // Gmail label to poll, e.g. "PeopleTasks"
 }
 
-export async function getEmailSettings(): Promise<EmailSettings | null> {
+export async function getEmailSettings(orgId: string): Promise<EmailSettings | null> {
   const row = await getOne<{ value: EmailSettings }>(
-    "SELECT value FROM settings WHERE key = 'email'",
+    "SELECT value FROM settings WHERE key = 'email' AND org_id = $1",
+    [orgId]
   );
   return row?.value ?? null;
 }
 
-export async function saveEmailSettings(settings: EmailSettings): Promise<void> {
+export async function saveEmailSettings(settings: EmailSettings, orgId: string): Promise<void> {
   await query(
-    `INSERT INTO settings (key, value, updated_at)
-     VALUES ('email', $1, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
-    [JSON.stringify(settings)]
+    `INSERT INTO settings (key, value, org_id, updated_at)
+     VALUES ('email', $1, $2, NOW())
+     ON CONFLICT (key, org_id) DO UPDATE SET value = $1, updated_at = NOW()`,
+    [JSON.stringify(settings), orgId]
   );
 }
 
@@ -50,8 +51,8 @@ interface SendEmailOptions {
   html?: string;
 }
 
-export async function sendEmail(options: SendEmailOptions): Promise<{ messageId: string }> {
-  const settings = await getEmailSettings();
+export async function sendEmail(options: SendEmailOptions, orgId: string): Promise<{ messageId: string }> {
+  const settings = await getEmailSettings(orgId);
   if (!settings) {
     throw new Error("Email not configured. Go to Settings to set up Gmail.");
   }
@@ -96,7 +97,7 @@ export function formatTaskEmail(
   const htmlParts = [
     `<div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px;">`,
     `<p>Hi,</p>`,
-    `<p>${fromName} has a task for you:</p>`,
+    `<p>${escapeHtml(fromName)} has a task for you:</p>`,
     `<div style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin: 16px 0;">`,
     `<h3 style="margin: 0 0 8px 0;">${escapeHtml(title)}</h3>`,
   ];

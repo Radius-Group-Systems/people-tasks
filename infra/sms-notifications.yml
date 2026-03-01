@@ -1,0 +1,123 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  SMS Notifications infrastructure for PeopleTasks.
+  Adds SNS publish permission to the ECS task role and creates an EventBridge
+  rule that triggers the notification processor every 15 minutes.
+
+Parameters:
+  EcsTaskRoleName:
+    Type: String
+    Default: people-tasks-task-role
+    Description: Name of the existing ECS task IAM role
+
+  AppUrl:
+    Type: String
+    Description: Base URL of the PeopleTasks app (e.g. https://tasks.example.com)
+
+  CronSecret:
+    Type: String
+    NoEcho: true
+    Description: Shared secret for authenticating cron requests
+
+Resources:
+
+  # Add sns:Publish permission to the ECS task role
+  SnsPublishPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: people-tasks-sns-publish
+      Roles:
+        - !Ref EcsTaskRoleName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - sns:Publish
+            Resource: "*"
+            Condition:
+              StringEquals:
+                "sns:Protocol": sms
+
+  # EventBridge rule to invoke the notification processor every 15 minutes
+  NotificationCronRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: people-tasks-notification-cron
+      Description: Trigger SMS notification processor every 15 minutes
+      ScheduleExpression: "rate(15 minutes)"
+      State: ENABLED
+      Targets:
+        - Id: notification-processor
+          Arn: !GetAtt NotificationCronLambda.Arn
+
+  # Small Lambda to call the app's cron endpoint via HTTPS
+  NotificationCronLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: people-tasks-cron-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+
+  NotificationCronLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: people-tasks-notification-cron
+      Runtime: nodejs20.x
+      Handler: index.handler
+      Timeout: 30
+      Role: !GetAtt NotificationCronLambdaRole.Arn
+      Environment:
+        Variables:
+          APP_URL: !Ref AppUrl
+          CRON_SECRET: !Ref CronSecret
+      Code:
+        ZipFile: |
+          const https = require('https');
+          const http = require('http');
+          exports.handler = async () => {
+            const url = new URL('/api/notifications/process', process.env.APP_URL);
+            const mod = url.protocol === 'https:' ? https : http;
+            return new Promise((resolve, reject) => {
+              const req = mod.request(url, {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.CRON_SECRET}`,
+                  'Content-Type': 'application/json',
+                },
+              }, (res) => {
+                let body = '';
+                res.on('data', (chunk) => body += chunk);
+                res.on('end', () => {
+                  console.log(`Status: ${res.statusCode}, Body: ${body}`);
+                  resolve({ statusCode: res.statusCode, body });
+                });
+              });
+              req.on('error', reject);
+              req.end();
+            });
+          };
+
+  # Permission for EventBridge to invoke the Lambda
+  NotificationCronLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref NotificationCronLambda
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt NotificationCronRule.Arn
+
+Outputs:
+  CronLambdaArn:
+    Description: ARN of the cron trigger Lambda
+    Value: !GetAtt NotificationCronLambda.Arn
+  EventBridgeRuleArn:
+    Description: ARN of the EventBridge schedule rule
+    Value: !GetAtt NotificationCronRule.Arn

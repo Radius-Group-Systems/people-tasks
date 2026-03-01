@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, getMany, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { Encounter } from "@/lib/types";
 import { generateMeetingSummary } from "@/lib/summarizer";
 
@@ -8,13 +8,10 @@ import { generateMeetingSummary } from "@/lib/summarizer";
  * Generate a structured meeting summary from the transcript.
  * Stores the result in encounters.detailed_summary (JSONB).
  */
-export async function POST(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const POST = withAuth(async (_req, { db }, params) => {
+  const id = params!.id;
 
-  const encounter = await getOne<Encounter>(
+  const encounter = await db.getOne<Encounter>(
     "SELECT * FROM encounters WHERE id = $1",
     [id]
   );
@@ -31,7 +28,7 @@ export async function POST(
   }
 
   try {
-    const participants = await getMany<{ name: string }>(
+    const participants = await db.getMany<{ name: string }>(
       `SELECT p.name FROM people p
        JOIN encounter_participants ep ON ep.person_id = p.id
        WHERE ep.encounter_id = $1`,
@@ -47,7 +44,7 @@ export async function POST(
     );
 
     // Store structured summary
-    await query(
+    await db.query(
       "UPDATE encounters SET detailed_summary = $1 WHERE id = $2",
       [JSON.stringify(summary), id]
     );
@@ -60,4 +57,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

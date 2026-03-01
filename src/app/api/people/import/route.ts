@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { query, getMany } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { parseVCards, VCardContact } from "@/lib/vcard";
 import { writeFile, mkdir } from "fs/promises";
 import { join } from "path";
@@ -18,7 +18,7 @@ interface ImportResult {
   contacts?: ImportContact[];
 }
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db, orgId }) => {
   const body = await req.json();
   const { contacts, vcf, dryRun } = body as {
     contacts?: ImportContact[];
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Get existing people to avoid duplicates (match on name, case-insensitive)
-  const existing = await getMany<{ name: string }>("SELECT LOWER(name) as name FROM people");
+  const existing = await db.getMany<{ name: string }>("SELECT LOWER(name) as name FROM people");
   const existingNames = new Set(existing.map((p) => p.name));
 
   let imported = 0;
@@ -77,9 +77,9 @@ export async function POST(req: NextRequest) {
       } catch { /* skip photo on error */ }
     }
 
-    await query(
-      `INSERT INTO people (name, email, phone, slack_handle, organization, photo_url)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+    await db.query(
+      `INSERT INTO people (name, email, phone, slack_handle, organization, photo_url, org_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         contact.name.trim(),
         contact.email || null,
@@ -87,6 +87,7 @@ export async function POST(req: NextRequest) {
         contact.slack_handle || null,
         contact.organization || null,
         photoUrl,
+        orgId,
       ]
     );
 
@@ -103,4 +104,4 @@ export async function POST(req: NextRequest) {
   };
 
   return NextResponse.json(result);
-}
+});

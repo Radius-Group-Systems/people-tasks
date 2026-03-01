@@ -1,0 +1,42 @@
+version: "3.8"
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ptasks
+      POSTGRES_PASSWORD: localdev
+      POSTGRES_DB: people_tasks
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ptasks"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://ptasks:localdev@db:5432/people_tasks
+      NEXTAUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: dev-secret-change-in-production
+      CRON_SECRET: local-dev-cron-secret
+      # Add your keys:
+      # GOOGLE_CLIENT_ID:
+      # GOOGLE_CLIENT_SECRET:
+      # S3_BUCKET:
+      # S3_REGION:
+      # AWS_REGION:
+
+volumes:
+  pgdata:

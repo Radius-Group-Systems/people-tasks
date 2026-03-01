@@ -81,6 +81,7 @@ export async function embedSource(
   sourceType: string,
   sourceId: number,
   text: string,
+  orgId: string,
   metadata?: Record<string, unknown>
 ): Promise<number> {
   // Clear old embeddings for this source
@@ -96,14 +97,15 @@ export async function embedSource(
     const embedding = await generateEmbedding(chunk);
 
     await query(
-      `INSERT INTO embeddings (source_type, source_id, chunk_text, embedding, metadata)
-       VALUES ($1, $2, $3, $4::vector, $5)`,
+      `INSERT INTO embeddings (source_type, source_id, chunk_text, embedding, metadata, org_id)
+       VALUES ($1, $2, $3, $4::vector, $5, $6)`,
       [
         sourceType,
         sourceId,
         chunk,
         `[${embedding.join(",")}]`,
         JSON.stringify({ ...metadata, chunk_index: stored }),
+        orgId,
       ]
     );
     stored++;
@@ -115,7 +117,7 @@ export async function embedSource(
 /**
  * Embed an encounter's transcript + summary.
  */
-export async function embedEncounter(encounterId: number): Promise<number> {
+export async function embedEncounter(encounterId: number, orgId: string): Promise<number> {
   const encounter = await getMany<{
     title: string;
     raw_transcript: string | null;
@@ -133,7 +135,7 @@ export async function embedEncounter(encounterId: number): Promise<number> {
   // Embed the transcript
   if (raw_transcript?.trim()) {
     const prefixed = `Meeting: ${title}\n\n${raw_transcript}`;
-    totalChunks += await embedSource("transcript", encounterId, prefixed, {
+    totalChunks += await embedSource("transcript", encounterId, prefixed, orgId, {
       encounter_id: encounterId,
       title,
     });
@@ -141,7 +143,7 @@ export async function embedEncounter(encounterId: number): Promise<number> {
 
   // Embed the summary as a separate source for better retrieval
   if (summary?.trim()) {
-    totalChunks += await embedSource("summary", encounterId, `Meeting: ${title}\n\nSummary: ${summary}`, {
+    totalChunks += await embedSource("summary", encounterId, `Meeting: ${title}\n\nSummary: ${summary}`, orgId, {
       encounter_id: encounterId,
       title,
     });
@@ -155,6 +157,7 @@ export async function embedEncounter(encounterId: number): Promise<number> {
  */
 export async function semanticSearch(
   queryText: string,
+  orgId: string,
   limit = 10,
   threshold = 0.25
 ): Promise<
@@ -178,10 +181,10 @@ export async function semanticSearch(
     `SELECT source_type, source_id, chunk_text, metadata,
        1 - (embedding <=> $1::vector) AS similarity
      FROM embeddings
-     WHERE 1 - (embedding <=> $1::vector) > $2
+     WHERE org_id = $4 AND 1 - (embedding <=> $1::vector) > $2
      ORDER BY embedding <=> $1::vector
      LIMIT $3`,
-    [`[${queryEmbedding.join(",")}]`, threshold, limit]
+    [`[${queryEmbedding.join(",")}]`, threshold, limit, orgId]
   );
 
   return results;

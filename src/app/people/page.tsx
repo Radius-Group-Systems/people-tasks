@@ -17,8 +17,9 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Person } from "@/lib/types";
 import { PersonAvatar } from "@/components/person-avatar";
-import { SearchIcon, ClipboardListIcon, ClockIcon, CheckCircle2Icon, AlertTriangleIcon, SparklesIcon } from "lucide-react";
+import { SearchIcon, ClipboardListIcon, ClockIcon, CheckCircle2Icon, AlertTriangleIcon, SparklesIcon, BarChart3Icon, TrendingUpIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
 
 interface ImportContact {
   name: string;
@@ -260,7 +261,7 @@ export default function PeoplePage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <h1 className="text-2xl font-bold">People</h1>
         <div className="flex gap-2">
           <Dialog open={importDialogOpen} onOpenChange={(open) => {
@@ -559,6 +560,61 @@ export default function PeoplePage() {
           className="pl-9"
         />
       </div>
+
+      {/* Accountability stats */}
+      {people.length > 0 && (() => {
+        const totalTasks = people.reduce((s, p) => s + (p.open_items_count ?? 0), 0);
+        const totalWaiting = people.reduce((s, p) => s + (p.waiting_on_count ?? 0), 0);
+        const totalDone = people.reduce((s, p) => s + (p.done_count ?? 0), 0);
+        const totalInProgress = people.reduce((s, p) => s + (p.in_progress_count ?? 0), 0);
+        const totalAll = totalTasks + totalWaiting + totalDone + totalInProgress;
+        const completionRate = totalAll > 0 ? Math.round((totalDone / totalAll) * 100) : 0;
+        const needsCheckin = people.filter((p) => {
+          const days = p.last_encounter_at
+            ? Math.floor((Date.now() - new Date(p.last_encounter_at).getTime()) / 86400000)
+            : Infinity;
+          return days > 14 && ((p.waiting_on_count ?? 0) > 0 || (p.open_items_count ?? 0) > 0);
+        }).length;
+        const topWaiting = people
+          .filter((p) => (p.waiting_on_count ?? 0) > 0)
+          .sort((a, b) => (b.waiting_on_count ?? 0) - (a.waiting_on_count ?? 0))
+          .slice(0, 3);
+
+        return (
+          <div className="flex gap-4 p-4 bg-muted/50 rounded-lg flex-wrap items-center">
+            <div className="flex items-center gap-2">
+              <BarChart3Icon className="w-4 h-4 text-muted-foreground" />
+              <span className="text-sm font-medium">Overview</span>
+            </div>
+            <div className="flex gap-4 text-sm">
+              <span><strong className="text-blue-600">{totalTasks}</strong> open</span>
+              <span><strong className="text-violet-600">{totalInProgress}</strong> in progress</span>
+              <span><strong className="text-amber-600">{totalWaiting}</strong> waiting</span>
+              <span><strong className="text-green-600">{totalDone}</strong> done</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-sm">
+              <TrendingUpIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              <span>{completionRate}% completion rate</span>
+            </div>
+            {needsCheckin > 0 && (
+              <Badge variant="outline" className="text-amber-600 border-amber-200">
+                <AlertTriangleIcon className="w-3 h-3 mr-1" />
+                {needsCheckin} need check-in
+              </Badge>
+            )}
+            {topWaiting.length > 0 && (
+              <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                Most waiting:
+                {topWaiting.map((p) => (
+                  <Badge key={p.id} variant="secondary" className="text-[10px]">
+                    {p.name} ({p.waiting_on_count})
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((person) => {

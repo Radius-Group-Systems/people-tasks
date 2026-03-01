@@ -106,13 +106,14 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 items-center flex-wrap">
+    <form onSubmit={handleSubmit} className="flex gap-2 items-center flex-wrap sm:flex-nowrap">
       <Input
         placeholder="Quick capture: what needs to happen?"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         className="flex-1 min-w-[200px]"
         autoFocus
+        data-quick-capture-trigger
       />
       {!defaultPersonId && (
         <PersonPicker

@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, getMany, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { Encounter, MeetingSummary } from "@/lib/types";
 import { generateMeetingSummary } from "@/lib/summarizer";
 
@@ -9,11 +9,8 @@ import { generateMeetingSummary } from "@/lib/summarizer";
  * Each topic becomes an action item: title = topic, description = conclusion, checklist = next_steps.
  * Returns extracted items + summary for review (nothing saved yet).
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const POST = withAuth(async (req, { db }, params) => {
+  const id = params!.id;
 
   // The client can send { user_person_id } so we know who "me" is
   let userPersonId: string | null = null;
@@ -24,7 +21,7 @@ export async function POST(
     // No body is fine
   }
 
-  const encounter = await getOne<Encounter>(
+  const encounter = await db.getOne<Encounter>(
     "SELECT * FROM encounters WHERE id = $1",
     [id]
   );
@@ -42,7 +39,7 @@ export async function POST(
 
   try {
     // Get linked participant names
-    const participants = await getMany<{ name: string }>(
+    const participants = await db.getMany<{ name: string }>(
       `SELECT p.name FROM people p
        JOIN encounter_participants ep ON ep.person_id = p.id
        WHERE ep.encounter_id = $1`,
@@ -53,7 +50,7 @@ export async function POST(
     // Look up the user's name
     let userName: string | null = null;
     if (userPersonId) {
-      const userPerson = await getOne<{ name: string }>(
+      const userPerson = await db.getOne<{ name: string }>(
         "SELECT name FROM people WHERE id = $1",
         [userPersonId]
       );
@@ -73,14 +70,14 @@ export async function POST(
       );
 
       // Save the detailed summary
-      await query(
+      await db.query(
         "UPDATE encounters SET detailed_summary = $1 WHERE id = $2",
         [JSON.stringify(detailedSummary), id]
       );
 
       // Also save the overall_summary if we don't have one
       if (!encounter.summary && detailedSummary.overall_summary) {
-        await query(
+        await db.query(
           "UPDATE encounters SET summary = $1 WHERE id = $2",
           [detailedSummary.overall_summary, id]
         );
@@ -117,4 +114,4 @@ export async function POST(
       { status: 500 }
     );
   }
-}
+});

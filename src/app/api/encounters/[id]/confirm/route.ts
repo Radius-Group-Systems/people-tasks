@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, getMany, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { Encounter, ActionItem } from "@/lib/types";
 import { embedEncounter } from "@/lib/embeddings";
 import { toNoonUTC } from "@/lib/date-utils";
@@ -31,14 +31,10 @@ interface ConfirmItem {
  *   participants: string[],         // people names to link
  * }
  */
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const encounterId = parseInt(id);
+export const POST = withAuth(async (req, { db, orgId }, params) => {
+  const encounterId = parseInt(params!.id);
 
-  const encounter = await getOne<Encounter>(
+  const encounter = await db.getOne<Encounter>(
     "SELECT * FROM encounters WHERE id = $1",
     [encounterId]
   );
@@ -51,7 +47,7 @@ export async function POST(
 
   // Resolve participant names to person IDs and link them
   if (participants?.length) {
-    const people = await getMany<{ id: number; name: string }>(
+    const people = await db.getMany<{ id: number; name: string }>(
       "SELECT id, name FROM people"
     );
     const nameMap = new Map(
@@ -63,15 +59,15 @@ export async function POST(
 
       // Auto-create person if not found
       if (!personId) {
-        const result = await query<{ id: number }>(
-          "INSERT INTO people (name) VALUES ($1) RETURNING id",
-          [name]
+        const result = await db.query<{ id: number }>(
+          "INSERT INTO people (name, org_id) VALUES ($1, $2) RETURNING id",
+          [name, orgId]
         );
         personId = result.rows[0].id;
       }
 
       // Link participant (ignore duplicates)
-      await query(
+      await db.query(
         `INSERT INTO encounter_participants (encounter_id, person_id)
          VALUES ($1, $2)
          ON CONFLICT DO NOTHING`,
@@ -84,7 +80,7 @@ export async function POST(
   const createdItems: ActionItem[] = [];
 
   if (items?.length) {
-    const people = await getMany<{ id: number; name: string }>(
+    const people = await db.getMany<{ id: number; name: string }>(
       "SELECT id, name FROM people"
     );
     const nameMap = new Map(
@@ -122,10 +118,10 @@ export async function POST(
         }
       }
 
-      const result = await query<ActionItem>(
+      const result = await db.query<ActionItem>(
         `INSERT INTO action_items
-          (title, description, owner_type, person_id, encounter_id, priority, due_at, due_trigger, checklist, links, attachments)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '[]', '[]')
+          (title, description, owner_type, person_id, encounter_id, priority, due_at, due_trigger, checklist, links, attachments, org_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, '[]', '[]', $10)
          RETURNING *`,
         [
           item.title,
@@ -137,6 +133,7 @@ export async function POST(
           dueAt,
           dueTrigger,
           JSON.stringify(item.checklist || []),
+          orgId,
         ]
       );
       createdItems.push(result.rows[0]);
@@ -146,7 +143,7 @@ export async function POST(
   // Embed the transcript in the background (don't block the response)
   let chunksEmbedded = 0;
   try {
-    chunksEmbedded = await embedEncounter(encounterId);
+    chunksEmbedded = await embedEncounter(encounterId, orgId);
   } catch (err) {
     console.error("Embedding failed (non-blocking):", err);
   }
@@ -157,4 +154,4 @@ export async function POST(
     chunks_embedded: chunksEmbedded,
     items: createdItems,
   });
-}
+});

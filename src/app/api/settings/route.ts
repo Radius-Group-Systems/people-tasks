@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 
-export async function GET() {
-  const row = await getOne<{ value: unknown }>(
+export const GET = withAuth(async (req, { db }) => {
+  const row = await db.getOne<{ value: unknown }>(
     "SELECT value FROM settings WHERE key = 'email'"
   );
 
@@ -15,9 +15,9 @@ export async function GET() {
   }
 
   return NextResponse.json({ email: null });
-}
+});
 
-export async function PUT(req: NextRequest) {
+export const PUT = withAuth(async (req, { db }) => {
   const body = await req.json();
   const { email } = body;
 
@@ -26,7 +26,7 @@ export async function PUT(req: NextRequest) {
   }
 
   // If passwords are masked, merge with existing
-  const existing = await getOne<{ value: Record<string, unknown> }>(
+  const existing = await db.getOne<{ value: Record<string, unknown> }>(
     "SELECT value FROM settings WHERE key = 'email'"
   );
 
@@ -40,7 +40,7 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  await query(
+  await db.query(
     `INSERT INTO settings (key, value, updated_at)
      VALUES ('email', $1, NOW())
      ON CONFLICT (key) DO UPDATE SET value = $1, updated_at = NOW()`,
@@ -48,4 +48,4 @@ export async function PUT(req: NextRequest) {
   );
 
   return NextResponse.json({ success: true });
-}
+});

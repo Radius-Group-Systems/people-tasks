@@ -13,7 +13,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { Encounter, ActionItem, MeetingSummary, EncounterFolder } from "@/lib/types";
+import { Encounter, ActionItem, MeetingSummary, EncounterFolder, Project } from "@/lib/types";
 import { ActionItemCard } from "@/components/action-item-card";
 import {
   ArrowLeftIcon,
@@ -27,6 +27,7 @@ import {
   MessageSquareIcon,
   LightbulbIcon,
   FolderIcon,
+  FolderKanbanIcon,
   PencilIcon,
   CheckIcon,
   StickyNoteIcon,
@@ -78,6 +79,7 @@ export default function EncounterDetailPage() {
   const [encounter, setEncounter] = useState<Encounter | null>(null);
   const [actionItems, setActionItems] = useState<ActionItem[]>([]);
   const [folders, setFolders] = useState<EncounterFolder[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [summarizing, setSummarizing] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -105,18 +107,21 @@ export default function EncounterDetailPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [encRes, itemsRes, folderRes] = await Promise.all([
+      const [encRes, itemsRes, folderRes, projRes] = await Promise.all([
         fetch(`/api/encounters/${id}`),
         fetch(`/api/action-items?encounter_id=${id}&status=all`),
         fetch("/api/encounter-folders"),
+        fetch("/api/projects?status=active"),
       ]);
       if (!encRes.ok) throw new Error("Encounter not found");
       const enc = await encRes.json();
       const items = await itemsRes.json();
       const fldrs = await folderRes.json();
+      const projs = await projRes.json();
       setEncounter(enc);
       setActionItems(items);
       setFolders(fldrs);
+      setProjects(projs);
       setNotes(enc.notes || "");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load");
@@ -165,6 +170,10 @@ export default function EncounterDetailPage() {
 
   async function handleFolderChange(folderId: string) {
     await patchEncounter({ folder_id: folderId === "none" ? null : parseInt(folderId) });
+  }
+
+  async function handleProjectChange(projectId: string) {
+    await patchEncounter({ project_id: projectId === "none" ? null : parseInt(projectId) });
   }
 
   async function handleGenerateSummary() {
@@ -695,6 +704,39 @@ export default function EncounterDetailPage() {
                           style={{ backgroundColor: f.color }}
                         />
                         {f.name}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {/* Project selector */}
+              <Select
+                value={encounter.project_id?.toString() || "none"}
+                onValueChange={handleProjectChange}
+              >
+                <SelectTrigger className="h-7 w-auto border-none shadow-none px-1 text-sm gap-1">
+                  {encounter.project_id ? (
+                    <span className="flex items-center gap-1.5">
+                      <FolderKanbanIcon className="w-3.5 h-3.5" />
+                      {projects.find((p) => p.id === encounter.project_id)?.name || "Project"}
+                    </span>
+                  ) : (
+                    <span className="flex items-center gap-1 text-muted-foreground">
+                      <FolderKanbanIcon className="w-3.5 h-3.5" />
+                      No project
+                    </span>
+                  )}
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No project</SelectItem>
+                  {projects.map((p) => (
+                    <SelectItem key={p.id} value={p.id.toString()}>
+                      <span className="flex items-center gap-2">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {p.name}
                       </span>
                     </SelectItem>
                   ))}

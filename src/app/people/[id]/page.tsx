@@ -20,11 +20,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { QuickCapture } from "@/components/quick-capture";
 import { ActionItemCard } from "@/components/action-item-card";
-import { Person, ActionItem, Encounter } from "@/lib/types";
+import { Person, ActionItem, Encounter, Project } from "@/lib/types";
 import { PersonAvatar } from "@/components/person-avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Trash2Icon, CameraIcon, PencilIcon, MailIcon, PhoneIcon, BuildingIcon, MessageSquareIcon, StickyNoteIcon, SparklesIcon } from "lucide-react";
+import { Trash2Icon, CameraIcon, PencilIcon, MailIcon, PhoneIcon, BuildingIcon, MessageSquareIcon, StickyNoteIcon, SparklesIcon, FolderKanbanIcon } from "lucide-react";
 
 const STATUSES = ["open", "in_progress", "snoozed", "done"] as const;
 
@@ -47,6 +47,7 @@ export default function PersonPage({
   const [myItemsByStatus, setMyItemsByStatus] = useState<Record<string, ActionItem[]>>({});
   const [theirItemsByStatus, setTheirItemsByStatus] = useState<Record<string, ActionItem[]>>({});
   const [encounters, setEncounters] = useState<Encounter[]>([]);
+  const [personProjects, setPersonProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [isMe, setIsMe] = useState(false);
@@ -55,6 +56,10 @@ export default function PersonPage({
     name: "", email: "", phone: "", slack_handle: "", organization: "", notes: "",
   });
   const [saving, setSaving] = useState(false);
+  const [stats, setStats] = useState<{
+    total_assigned: number; completed: number; open: number; overdue: number;
+    avg_days_to_complete: number | null; completion_rate: number;
+  } | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   const fetchData = useCallback(async () => {
@@ -72,6 +77,8 @@ export default function PersonPage({
       const fetches = [
         fetch(`/api/people/${id}`),
         fetch(`/api/encounters?person_id=${id}`),
+        fetch(`/api/projects?person_id=${id}`),
+        fetch(`/api/people/${id}/stats`),
         ...STATUSES.map((s) =>
           fetch(`/api/action-items?${taskFilter}owner_type=me&status=${s}`)
         ),
@@ -85,12 +92,14 @@ export default function PersonPage({
 
       setPerson(jsons[0]);
       setEncounters(jsons[1]);
+      setPersonProjects(jsons[2]);
+      setStats(jsons[3]);
 
       const myMap: Record<string, ActionItem[]> = {};
       const theirMap: Record<string, ActionItem[]> = {};
       STATUSES.forEach((s, i) => {
-        myMap[s] = jsons[2 + i];
-        theirMap[s] = jsons[2 + STATUSES.length + i];
+        myMap[s] = jsons[4 + i];
+        theirMap[s] = jsons[4 + STATUSES.length + i];
       });
       setMyItemsByStatus(myMap);
       setTheirItemsByStatus(theirMap);
@@ -203,7 +212,7 @@ export default function PersonPage({
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         <div className="flex items-start gap-4 flex-1 min-w-0">
           {/* Photo with upload overlay */}
           <div className="relative group/photo flex-shrink-0">
@@ -373,12 +382,42 @@ export default function PersonPage({
         </div>
       </div>
 
+      {stats && stats.total_assigned > 0 && !isMe && (
+        <div className="flex gap-4 p-3 bg-muted/50 rounded-lg">
+          <div className="text-center">
+            <div className="text-lg font-bold">{stats.completion_rate}%</div>
+            <div className="text-[10px] text-muted-foreground">Complete</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg font-bold">{stats.completed}</div>
+            <div className="text-[10px] text-muted-foreground">Done</div>
+          </div>
+          <div className="text-center">
+            <div className="text-lg font-bold">{stats.open}</div>
+            <div className="text-[10px] text-muted-foreground">Open</div>
+          </div>
+          {stats.overdue > 0 && (
+            <div className="text-center">
+              <div className="text-lg font-bold text-red-600">{stats.overdue}</div>
+              <div className="text-[10px] text-muted-foreground">Overdue</div>
+            </div>
+          )}
+          {stats.avg_days_to_complete !== null && (
+            <div className="text-center">
+              <div className="text-lg font-bold">{stats.avg_days_to_complete}d</div>
+              <div className="text-[10px] text-muted-foreground">Avg time</div>
+            </div>
+          )}
+        </div>
+      )}
+
       <QuickCapture onCreated={fetchData} defaultPersonId={person.id} />
 
       <Tabs defaultValue="action-items">
         <TabsList>
           <TabsTrigger value="action-items">Action Items</TabsTrigger>
           <TabsTrigger value="encounters">Encounters</TabsTrigger>
+          <TabsTrigger value="projects">Projects ({personProjects.length})</TabsTrigger>
         </TabsList>
 
         <TabsContent value="action-items" className="space-y-6 mt-4">
@@ -449,26 +488,55 @@ export default function PersonPage({
           ) : (
             <div className="space-y-4">
               {encounters.map((enc) => (
-                <Card key={enc.id}>
-                  <CardContent className="pt-4">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <h3 className="font-medium">{enc.title}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {new Date(enc.occurred_at).toLocaleDateString()}{" "}
-                          &middot; {enc.encounter_type}
-                        </p>
+                <Link key={enc.id} href={`/encounters/${enc.id}`}>
+                  <Card className="hover:border-primary/30 hover:shadow-sm transition-all cursor-pointer">
+                    <CardContent className="pt-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="font-medium">{enc.title}</h3>
+                          <p className="text-sm text-muted-foreground">
+                            {new Date(enc.occurred_at).toLocaleDateString()}{" "}
+                            &middot; {enc.encounter_type}
+                          </p>
+                        </div>
+                        <Badge variant="outline">{enc.source}</Badge>
                       </div>
-                      <Badge variant="outline">{enc.source}</Badge>
-                    </div>
-                    {enc.summary && (
-                      <>
-                        <Separator className="my-3" />
-                        <p className="text-sm">{enc.summary}</p>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
+                      {enc.summary && (
+                        <>
+                          <Separator className="my-3" />
+                          <p className="text-sm">{enc.summary}</p>
+                        </>
+                      )}
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="projects" className="mt-4">
+          {personProjects.length === 0 ? (
+            <p className="text-muted-foreground">Not involved in any projects.</p>
+          ) : (
+            <div className="space-y-3">
+              {personProjects.map((proj) => (
+                <Link key={proj.id} href={`/projects/${proj.id}`}>
+                  <Card className="hover:border-primary/40 transition-colors cursor-pointer">
+                    <CardContent className="pt-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: proj.color }} />
+                        <h3 className="font-medium">{proj.name}</h3>
+                        <Badge variant="outline" className="text-[10px]">{proj.status}</Badge>
+                      </div>
+                      {proj.description && <p className="text-sm text-muted-foreground mt-1">{proj.description}</p>}
+                      <div className="flex gap-3 mt-2 text-xs text-muted-foreground">
+                        {(proj.task_count ?? 0) > 0 && <span>{proj.done_count}/{proj.task_count} tasks</span>}
+                        {proj.next_milestone && <span>Next: {proj.next_milestone}</span>}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
               ))}
             </div>
           )}

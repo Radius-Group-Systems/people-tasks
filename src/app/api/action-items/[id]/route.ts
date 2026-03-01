@@ -1,21 +1,38 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { ActionItem } from "@/lib/types";
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
+export const PATCH = withAuth(async (req, { db }, params) => {
+  const id = params!.id;
   const body = await req.json();
 
   // Fetch current item so we can merge
-  const current = await getOne<ActionItem>(
+  const current = await db.getOne<ActionItem>(
     "SELECT * FROM action_items WHERE id = $1",
     [id]
   );
   if (!current) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
+  }
+
+  const VALID_STATUSES = ["open", "in_progress", "snoozed", "done"];
+  const VALID_PRIORITIES = ["urgent", "high", "normal", "low"];
+  const VALID_OWNER_TYPES = ["me", "them"];
+
+  if (body.title && body.title.length > 500) {
+    return NextResponse.json({ error: "Title too long (max 500 chars)" }, { status: 400 });
+  }
+  if (body.description && body.description.length > 10000) {
+    return NextResponse.json({ error: "Description too long (max 10000 chars)" }, { status: 400 });
+  }
+  if (body.status && !VALID_STATUSES.includes(body.status)) {
+    return NextResponse.json({ error: `Invalid status. Must be one of: ${VALID_STATUSES.join(", ")}` }, { status: 400 });
+  }
+  if (body.priority && !VALID_PRIORITIES.includes(body.priority)) {
+    return NextResponse.json({ error: `Invalid priority. Must be one of: ${VALID_PRIORITIES.join(", ")}` }, { status: 400 });
+  }
+  if (body.owner_type && !VALID_OWNER_TYPES.includes(body.owner_type)) {
+    return NextResponse.json({ error: `Invalid owner_type. Must be one of: ${VALID_OWNER_TYPES.join(", ")}` }, { status: 400 });
   }
 
   const title = body.title ?? current.title;
@@ -33,6 +50,8 @@ export async function PATCH(
   const checklist = body.checklist !== undefined ? body.checklist : current.checklist;
   const links = body.links !== undefined ? body.links : current.links;
   const attachments = body.attachments !== undefined ? body.attachments : current.attachments;
+  const project_id = body.project_id !== undefined ? body.project_id : current.project_id;
+  const milestone_id = body.milestone_id !== undefined ? body.milestone_id : current.milestone_id;
 
   // Handle status transitions
   let completed_at = current.completed_at;
@@ -42,7 +61,7 @@ export async function PATCH(
     completed_at = null;
   }
 
-  const result = await query<ActionItem>(
+  const result = await db.query<ActionItem>(
     `UPDATE action_items SET
       title = $2,
       description = $3,
@@ -60,6 +79,8 @@ export async function PATCH(
       checklist = $15,
       links = $16,
       attachments = $17,
+      project_id = $18,
+      milestone_id = $19,
       updated_at = NOW()
     WHERE id = $1
     RETURNING *`,
@@ -70,22 +91,21 @@ export async function PATCH(
       JSON.stringify(checklist || []),
       JSON.stringify(links || []),
       JSON.stringify(attachments || []),
+      project_id,
+      milestone_id,
     ]
   );
 
   return NextResponse.json(result.rows[0]);
-}
+});
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const { id } = await params;
-  const result = await query("DELETE FROM action_items WHERE id = $1", [id]);
+export const DELETE = withAuth(async (_req, { db }, params) => {
+  const id = params!.id;
+  const result = await db.query("DELETE FROM action_items WHERE id = $1", [id]);
 
   if (result.rowCount === 0) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 
   return NextResponse.json({ success: true });
-}
+});

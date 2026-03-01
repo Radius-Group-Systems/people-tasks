@@ -39,6 +39,7 @@ import {
   XIcon,
   MailIcon,
   PaperclipIcon,
+  FolderKanbanIcon,
 } from "lucide-react";
 
 interface EncounterRow {
@@ -58,6 +59,9 @@ interface EncounterRow {
   participant_names: string | null;
   email_from: { name: string; address: string } | null;
   email_attachments: { name: string; content_type: string; size: number; path: string }[] | null;
+  project_id: number | null;
+  project_name: string | null;
+  project_color: string | null;
 }
 
 const typeLabels: Record<string, string> = {
@@ -504,7 +508,7 @@ export default function EncountersPage() {
       </div>
 
       {/* Filters row */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <Input
           placeholder="Search encounters..."
           value={search}
@@ -578,6 +582,18 @@ export default function EncountersPage() {
                   >
                     <FolderIcon className="w-3 h-3" />
                     {enc.folder_name}
+                  </span>
+                )}
+                {enc.project_name && (
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full flex-shrink-0 flex items-center gap-1"
+                    style={{
+                      backgroundColor: (enc.project_color || "#6b7280") + "20",
+                      color: enc.project_color || "#6b7280",
+                    }}
+                  >
+                    <FolderKanbanIcon className="w-3 h-3" />
+                    {enc.project_name}
                   </span>
                 )}
               </div>

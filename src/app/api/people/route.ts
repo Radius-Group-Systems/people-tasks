@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getMany, query } from "@/lib/db";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
 import { Person } from "@/lib/types";
 
-export async function GET() {
-  const people = await getMany<Person>(`
+export const GET = withAuth(async (req, { db }) => {
+  const people = await db.getMany<Person>(`
     SELECT p.*,
       COUNT(CASE WHEN ai.owner_type = 'me' AND ai.status = 'open' THEN 1 END)::int AS open_items_count,
       COUNT(CASE WHEN ai.owner_type = 'them' AND ai.status = 'open' THEN 1 END)::int AS waiting_on_count,
@@ -23,9 +23,9 @@ export async function GET() {
     ORDER BY p.name
   `);
   return NextResponse.json(people);
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withAuth(async (req, { db, orgId }) => {
   const body = await req.json();
   const { name, email, phone, slack_handle, organization, notes } = body;
 
@@ -33,12 +33,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
 
-  const result = await query<Person>(
-    `INSERT INTO people (name, email, phone, slack_handle, organization, notes)
-     VALUES ($1, $2, $3, $4, $5, $6)
+  const result = await db.query<Person>(
+    `INSERT INTO people (name, email, phone, slack_handle, organization, notes, org_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING *`,
-    [name.trim(), email || null, phone || null, slack_handle || null, organization || null, notes || null]
+    [name.trim(), email || null, phone || null, slack_handle || null, organization || null, notes || null, orgId]
   );
 
   return NextResponse.json(result.rows[0], { status: 201 });
-}
+});

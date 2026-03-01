@@ -197,8 +197,14 @@ function formatMarkdown(text: string): string {
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     // Inline code
     .replace(/`(.+?)`/g, "<code>$1</code>")
-    // Links
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" class="text-primary underline">$1</a>')
+    // Links (sanitize URLs — only allow http/https)
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_match, text, url) => {
+      const trimmed = url.trim().toLowerCase();
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        return `<a href="${url}" class="text-primary underline" rel="noopener noreferrer">${text}</a>`;
+      }
+      return text;
+    })
     // Unordered lists
     .replace(/^- (.+)$/gm, "<li>$1</li>")
     .replace(/(<li>.*<\/li>\n?)+/g, "<ul>$&</ul>")

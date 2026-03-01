@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from "next/server";
-import { getOne, getMany } from "@/lib/db";
-import { Person, ActionItem, Encounter } from "@/lib/types";
+import { NextResponse } from "next/server";
+import { withAuth } from "@/lib/api-handler";
+import { Person, ActionItem, Encounter, Project } from "@/lib/types";
 import { semanticSearch } from "@/lib/embeddings";
 
 /**
@@ -11,13 +11,13 @@ import { semanticSearch } from "@/lib/embeddings";
  * - Recent encounters
  * - Related context from other meetings (via semantic search)
  */
-export async function GET(req: NextRequest) {
+export const GET = withAuth(async (req, { db, orgId }) => {
   const personId = req.nextUrl.searchParams.get("person_id");
   if (!personId) {
     return NextResponse.json({ error: "person_id is required" }, { status: 400 });
   }
 
-  const person = await getOne<Person>(
+  const person = await db.getOne<Person>(
     "SELECT * FROM people WHERE id = $1",
     [personId]
   );
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Open items I need to do for this person
-  const myOpenItems = await getMany<ActionItem>(
+  const myOpenItems = await db.getMany<ActionItem>(
     `SELECT ai.*, p.name AS person_name, sp.name AS source_person_name,
       CASE WHEN ai.due_trigger = 'next_meeting' AND p.next_meeting_at IS NOT NULL
         THEN p.next_meeting_at ELSE NULL END AS next_meeting_date
@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   );
 
   // Open items they need to do (what I'm waiting on)
-  const theirOpenItems = await getMany<ActionItem>(
+  const theirOpenItems = await db.getMany<ActionItem>(
     `SELECT ai.*, p.name AS person_name, sp.name AS source_person_name,
       CASE WHEN ai.due_trigger = 'next_meeting' AND p.next_meeting_at IS NOT NULL
         THEN p.next_meeting_at ELSE NULL END AS next_meeting_date
@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   );
 
   // Recent encounters with this person (last 5)
-  const recentEncounters = await getMany<Encounter>(
+  const recentEncounters = await db.getMany<Encounter>(
     `SELECT e.* FROM encounters e
      JOIN encounter_participants ep ON ep.encounter_id = e.id
      WHERE ep.person_id = $1
@@ -63,10 +63,22 @@ export async function GET(req: NextRequest) {
     [personId]
   );
 
+  // Shared projects with this person
+  const sharedProjects = await db.getMany<Project>(
+    `SELECT p.*,
+      (SELECT COUNT(*) FROM action_items ai WHERE ai.project_id = p.id AND ai.status IN ('open', 'in_progress'))::int AS open_count,
+      (SELECT COUNT(*) FROM action_items ai WHERE ai.project_id = p.id)::int AS task_count
+     FROM projects p
+     JOIN project_members pm ON pm.project_id = p.id
+     WHERE pm.person_id = $1 AND p.status = 'active'
+     ORDER BY p.name`,
+    [personId]
+  );
+
   // Semantic search for related context (mentions of this person in other meetings)
   let relatedContext: { title: string; excerpt: string; encounter_id: number }[] = [];
   try {
-    const searchResults = await semanticSearch(person.name, 5, 0.25);
+    const searchResults = await semanticSearch(person.name, orgId, 5, 0.25);
     // Deduplicate by encounter and exclude encounters already listed
     const recentIds = new Set(recentEncounters.map((e) => e.id));
     const seen = new Set<number>();
@@ -93,5 +105,6 @@ export async function GET(req: NextRequest) {
     their_open_items: theirOpenItems,
     recent_encounters: recentEncounters,
     related_context: relatedContext,
+    shared_projects: sharedProjects,
   });
-}
+});

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { ActionItem, ActionItemLink, ActionItemAttachment, ChecklistItem, Person } from "@/lib/types";
+import { ActionItem, ActionItemLink, ActionItemAttachment, ChecklistItem, Person, Project, Milestone } from "@/lib/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +28,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toNoonUTC, toDateInputValue, formatDateDisplay, isDateOverdue } from "@/lib/date-utils";
 import { PersonPicker } from "@/components/person-picker";
@@ -40,7 +45,28 @@ import {
   ListChecksIcon,
   GripVerticalIcon,
   MailIcon,
+  MessageSquareIcon,
+  SmartphoneIcon,
+  FolderKanbanIcon,
+  ClockIcon,
+  ArrowRightIcon,
+  SendIcon,
 } from "lucide-react";
+
+// --- Snooze presets ---
+function getNextMonday() {
+  const d = new Date();
+  d.setDate(d.getDate() + ((8 - d.getDay()) % 7 || 7));
+  return Math.ceil((d.getTime() - new Date().getTime()) / 86400000);
+}
+
+const SNOOZE_PRESETS = [
+  { label: "Tomorrow", getDays: () => 1 },
+  { label: "In 3 days", getDays: () => 3 },
+  { label: "Next Monday", getDays: getNextMonday },
+  { label: "In 2 weeks", getDays: () => 14 },
+  { label: "Next month", getDays: () => 30 },
+];
 
 interface ActionItemCardProps {
   item: ActionItem;
@@ -148,6 +174,7 @@ export function ActionItemCard({
   showPerson = true,
 }: ActionItemCardProps) {
   const [open, setOpen] = useState(false);
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
 
   const effectiveDue = item.due_at || (item.due_trigger === "next_meeting" ? item.next_meeting_date : null);
   const isOverdue =
@@ -166,14 +193,37 @@ export function ActionItemCard({
     onUpdate?.();
   }
 
+  async function handleSnooze(days: number) {
+    const target = new Date();
+    target.setDate(target.getDate() + days);
+    const dateStr = `${target.getFullYear()}-${String(target.getMonth() + 1).padStart(2, "0")}-${String(target.getDate()).padStart(2, "0")}`;
+    await patchItem(item.id, { status: "snoozed", snoozed_until: toNoonUTC(dateStr) });
+    setSnoozeOpen(false);
+    onUpdate?.();
+  }
+
+  async function handleSnoozeToDate(dateStr: string) {
+    if (!dateStr) return;
+    await patchItem(item.id, { status: "snoozed", snoozed_until: toNoonUTC(dateStr) });
+    setSnoozeOpen(false);
+    onUpdate?.();
+  }
+
+  async function handleUnsnooze(e: React.MouseEvent) {
+    e.stopPropagation();
+    await patchItem(item.id, { status: "open", snoozed_until: null });
+    onUpdate?.();
+  }
+
   return (
     <>
       <div
         onClick={() => setOpen(true)}
         className={cn(
-          "flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer",
+          "group flex items-start gap-3 p-3 rounded-lg border transition-all cursor-pointer",
           "hover:border-primary/30 hover:shadow-sm",
           item.status === "done" && "opacity-50",
+          item.status === "snoozed" && "opacity-60",
           isOverdue && "border-red-300 bg-red-50"
         )}
       >
@@ -187,7 +237,7 @@ export function ActionItemCard({
           )}
         />
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span
               className={cn(
                 "font-medium",
@@ -205,7 +255,28 @@ export function ActionItemCard({
               </Badge>
             )}
             {item.owner_type === "them" && (
-              <Badge variant="outline">waiting</Badge>
+              <Badge variant="outline" className={item.sent_at ? "border-green-200 text-green-700" : ""}>
+                {item.sent_at ? `sent ${item.sent_via || ""}` : "waiting"}
+              </Badge>
+            )}
+            {item.status === "snoozed" && item.snoozed_until && (
+              <Badge variant="outline" className="text-[10px] text-amber-600 border-amber-200 gap-1">
+                <ClockIcon className="w-2.5 h-2.5" />
+                Until {formatDateDisplay(item.snoozed_until)}
+                <button
+                  onClick={handleUnsnooze}
+                  className="ml-0.5 hover:text-foreground transition-colors"
+                  title="Wake up now"
+                >
+                  <XIcon className="w-2.5 h-2.5" />
+                </button>
+              </Badge>
+            )}
+            {item.project_name && (
+              <Badge variant="outline" className="text-[10px] px-1.5 py-0 gap-1">
+                <FolderKanbanIcon className="w-2.5 h-2.5" />
+                {item.project_name}
+              </Badge>
             )}
             {checklistTotal > 0 && (
               <ChecklistPill done={checklistDone} total={checklistTotal} />
@@ -240,6 +311,41 @@ export function ActionItemCard({
               </span>
             )}
           </div>
+        </div>
+        {/* Snooze quick-action (visible on hover) */}
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+          <Popover open={snoozeOpen} onOpenChange={setSnoozeOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className="p-1 text-muted-foreground hover:text-foreground"
+                onClick={(e) => e.stopPropagation()}
+                title="Snooze"
+              >
+                <ClockIcon className="w-3.5 h-3.5" />
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-[200px] p-1" align="end">
+              {SNOOZE_PRESETS.map((preset) => (
+                <button
+                  key={preset.label}
+                  onClick={(e) => { e.stopPropagation(); handleSnooze(preset.getDays()); }}
+                  className="w-full text-left px-3 py-1.5 text-sm hover:bg-muted rounded"
+                >
+                  {preset.label}
+                </button>
+              ))}
+              <div className="border-t my-1" />
+              <div className="px-3 py-1.5">
+                <input
+                  type="date"
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => { e.stopPropagation(); handleSnoozeToDate(e.target.value); }}
+                  className="w-full text-sm border rounded px-2 py-1"
+                  min={new Date().toISOString().split("T")[0]}
+                />
+              </div>
+            </PopoverContent>
+          </Popover>
         </div>
       </div>
 
@@ -291,13 +397,20 @@ function ActionItemModal({
   const [newLinkUrl, setNewLinkUrl] = useState("");
   const [newLinkLabel, setNewLinkLabel] = useState("");
   const [showLinkInput, setShowLinkInput] = useState(false);
+  const [projectId, setProjectId] = useState(item.project_id?.toString() || "");
+  const [milestoneId, setMilestoneId] = useState(item.milestone_id?.toString() || "");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [sendingSlack, setSendingSlack] = useState(false);
+  const [sendingSms, setSendingSms] = useState(false);
   const [sendMessage, setSendMessage] = useState<string | null>(null);
+  const [delegations, setDelegations] = useState<{ id: number; from_name: string | null; to_name: string | null; via_name: string | null; status: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -305,7 +418,26 @@ function ActionItemModal({
       .then((r) => r.json())
       .then(setPeople)
       .catch(console.error);
-  }, []);
+    fetch("/api/projects?status=active")
+      .then((r) => r.json())
+      .then(setProjects)
+      .catch(console.error);
+    fetch(`/api/delegation-chains?action_item_id=${item.id}`)
+      .then((r) => r.json())
+      .then(setDelegations)
+      .catch(console.error);
+  }, [item.id]);
+
+  useEffect(() => {
+    if (projectId) {
+      fetch(`/api/projects/${projectId}/milestones`)
+        .then((r) => r.json())
+        .then(setMilestones)
+        .catch(console.error);
+    } else {
+      setMilestones([]);
+    }
+  }, [projectId]);
 
   function markDirty() { setDirty(true); }
 
@@ -332,6 +464,8 @@ function ActionItemModal({
         status === "snoozed" && snoozedUntil
           ? toNoonUTC(snoozedUntil)
           : null,
+      project_id: projectId ? parseInt(projectId) : null,
+      milestone_id: milestoneId ? parseInt(milestoneId) : null,
       checklist,
       links,
       attachments,
@@ -365,6 +499,46 @@ function ActionItemModal({
       setSendMessage(err instanceof Error ? err.message : "Send failed");
     } finally {
       setSendingEmail(false);
+    }
+  }
+
+  async function handleSendSlack() {
+    setSendingSlack(true);
+    setSendMessage(null);
+    try {
+      const res = await fetch("/api/slack/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_item_id: item.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Send failed");
+      setSendMessage(`Sent via Slack to ${data.sent_to || "channel"}`);
+      onUpdate();
+    } catch (err) {
+      setSendMessage(err instanceof Error ? err.message : "Slack send failed");
+    } finally {
+      setSendingSlack(false);
+    }
+  }
+
+  async function handleSendSms() {
+    setSendingSms(true);
+    setSendMessage(null);
+    try {
+      const res = await fetch("/api/sms/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action_item_id: item.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Send failed");
+      setSendMessage(`Sent SMS to ${data.sent_to}`);
+      onUpdate();
+    } catch (err) {
+      setSendMessage(err instanceof Error ? err.message : "SMS send failed");
+    } finally {
+      setSendingSms(false);
     }
   }
 
@@ -449,18 +623,14 @@ function ActionItemModal({
         {/* Header: Person top-left, status+priority top-right */}
         <div className="flex items-center justify-between px-5 pt-5 pb-2">
           <div className="flex items-center gap-2 min-w-0">
-            {showPerson ? (
-              <PersonPicker
-                people={people}
-                value={personId}
-                onSelect={(v) => { setPersonId(v); markDirty(); }}
-                onPersonCreated={(p) => setPeople((prev) => [...prev, p])}
-                placeholder="Assign person"
-                className="h-8 border-none shadow-none px-1 text-sm font-semibold"
-              />
-            ) : (
-              <span className="text-sm font-semibold">{personName}</span>
-            )}
+            <PersonPicker
+              people={people}
+              value={personId}
+              onSelect={(v) => { setPersonId(v); markDirty(); }}
+              onPersonCreated={(p) => setPeople((prev) => [...prev, p])}
+              placeholder="Assign person"
+              className="h-8 border-none shadow-none px-1 text-sm font-semibold"
+            />
           </div>
           <div className="flex items-center gap-1">
             <Select value={status} onValueChange={(v) => { setStatus(v); markDirty(); }}>
@@ -593,7 +763,36 @@ function ActionItemModal({
             )}
           </div>
 
-          {/* Row 3: Timestamps + Sent status */}
+          {/* Row 3: Project + Milestone */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground w-14">Project</span>
+            <Select value={projectId || "_none"} onValueChange={(v) => { setProjectId(v === "_none" ? "" : v); setMilestoneId(""); markDirty(); }}>
+              <SelectTrigger className="h-7 w-auto border-none shadow-none px-1 text-sm">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="_none">None</SelectItem>
+                {projects.map((p) => (
+                  <SelectItem key={p.id} value={String(p.id)}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {milestones.length > 0 && (
+              <Select value={milestoneId || "_none"} onValueChange={(v) => { setMilestoneId(v === "_none" ? "" : v); markDirty(); }}>
+                <SelectTrigger className="h-7 w-auto border-none shadow-none px-1 text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_none">No milestone</SelectItem>
+                  {milestones.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>{m.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
+
+          {/* Row 4: Timestamps + Sent status */}
           <div className="flex items-center gap-4 text-xs text-muted-foreground pt-1">
             <span>Created {timeAgo(item.created_at)}</span>
             {item.completed_at && (
@@ -798,6 +997,44 @@ function ActionItemModal({
           )}
         </div>
 
+        {/* Delegation chain */}
+        {delegations.length > 0 && (
+          <>
+            <div className="border-t mt-3" />
+            <div className="px-5 pt-3 pb-2">
+              <span className="text-sm font-medium text-muted-foreground flex items-center gap-1.5 mb-2">
+                <SendIcon className="w-3.5 h-3.5" />
+                Delegation Chain
+              </span>
+              <div className="flex items-center gap-1 flex-wrap">
+                {delegations.map((d, i) => (
+                  <div key={d.id} className="flex items-center gap-1">
+                    {i > 0 && <ArrowRightIcon className="w-3 h-3 text-muted-foreground" />}
+                    <span className="text-xs px-2 py-1 bg-muted rounded-full">
+                      {d.from_name || "You"}
+                    </span>
+                    {d.via_name && (
+                      <>
+                        <ArrowRightIcon className="w-3 h-3 text-muted-foreground" />
+                        <span className="text-xs px-2 py-1 bg-amber-50 border border-amber-200 rounded-full">
+                          {d.via_name}
+                        </span>
+                      </>
+                    )}
+                    <ArrowRightIcon className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-xs px-2 py-1 bg-muted rounded-full">
+                      {d.to_name || "?"}
+                    </span>
+                    <Badge variant="outline" className="text-[10px] ml-1">
+                      {d.status}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* Send email feedback */}
         {sendMessage && (
           <div className={cn(
@@ -819,14 +1056,32 @@ function ActionItemModal({
               Delete
             </button>
             {ownerType === "them" && (
-              <button
-                onClick={handleSendEmail}
-                disabled={sendingEmail}
-                className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
-              >
-                <MailIcon className="w-3.5 h-3.5" />
-                {sendingEmail ? "Sending..." : item.sent_at ? "Resend" : "Send via email"}
-              </button>
+              <>
+                <button
+                  onClick={handleSendEmail}
+                  disabled={sendingEmail}
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
+                >
+                  <MailIcon className="w-3.5 h-3.5" />
+                  {sendingEmail ? "Sending..." : item.sent_at ? "Resend email" : "Email"}
+                </button>
+                <button
+                  onClick={handleSendSlack}
+                  disabled={sendingSlack}
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
+                >
+                  <MessageSquareIcon className="w-3.5 h-3.5" />
+                  {sendingSlack ? "Sending..." : "Slack"}
+                </button>
+                <button
+                  onClick={handleSendSms}
+                  disabled={sendingSms}
+                  className="text-sm text-muted-foreground hover:text-primary transition-colors flex items-center gap-1.5"
+                >
+                  <SmartphoneIcon className="w-3.5 h-3.5" />
+                  {sendingSms ? "Sending..." : "SMS"}
+                </button>
+              </>
             )}
           </div>
           <div className="flex items-center gap-2">

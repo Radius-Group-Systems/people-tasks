@@ -65,12 +65,14 @@ export interface Encounter {
   email_to: EmailAddress[] | null;
   email_cc: EmailAddress[] | null;
   email_attachments: EmailAttachment[];
+  project_id: number | null;
   created_at: string;
   // Joined
   participants?: Person[];
   action_items?: ActionItem[];
   folder_name?: string;
   folder_color?: string;
+  project_name?: string;
 }
 
 export interface MeetingSummary {
@@ -114,6 +116,8 @@ export interface ActionItem {
   person_id: number | null;
   source_person_id: number | null;
   encounter_id: number | null;
+  project_id: number | null;
+  milestone_id: number | null;
   status: "open" | "in_progress" | "done" | "snoozed" | "cancelled";
   priority: "low" | "normal" | "high" | "urgent";
   due_at: string | null;
@@ -132,6 +136,51 @@ export interface ActionItem {
   source_person_name?: string;
   encounter_title?: string;
   next_meeting_date?: string | null;
+  project_name?: string;
+  milestone_title?: string;
+}
+
+export interface Project {
+  id: number;
+  name: string;
+  description: string | null;
+  status: "active" | "on_hold" | "completed" | "archived";
+  color: string;
+  start_date: string | null;
+  target_date: string | null;
+  created_at: string;
+  updated_at: string;
+  // Computed / joined
+  members?: ProjectMember[];
+  task_count?: number;
+  done_count?: number;
+  open_count?: number;
+  milestone_count?: number;
+  next_milestone?: string | null;
+}
+
+export interface ProjectMember {
+  project_id: number;
+  person_id: number;
+  role: "lead" | "member" | "stakeholder" | "client";
+  created_at: string;
+  // Joined
+  person_name?: string;
+  person_photo_url?: string | null;
+}
+
+export interface Milestone {
+  id: number;
+  project_id: number;
+  title: string;
+  description: string | null;
+  target_date: string | null;
+  status: "upcoming" | "in_progress" | "completed";
+  sort_order: number;
+  created_at: string;
+  // Computed
+  task_count?: number;
+  done_count?: number;
 }
 
 export interface DelegationChain {

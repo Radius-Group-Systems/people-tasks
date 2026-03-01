@@ -1,17 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { withAuth, AuthContext } from "@/lib/api-handler";
 import { semanticSearch } from "@/lib/embeddings";
 import { invokeModel } from "@/lib/bedrock";
-import { getOne, getMany } from "@/lib/db";
 import { ActionItem, Person, Encounter } from "@/lib/types";
 
 /**
  * Hybrid search: handles structured queries (tasks, people, dates) via database
  * AND semantic queries (meeting content, discussions) via vector search + RAG.
  */
-export async function GET(req: NextRequest) {
+export const GET = withAuth(async (req, { db, orgId }) => {
   const { searchParams } = new URL(req.url);
   const q = searchParams.get("q");
-  const limit = parseInt(searchParams.get("limit") || "8");
+  const limit = Math.min(Math.max(parseInt(searchParams.get("limit") || "8") || 8, 1), 50);
 
   if (!q?.trim()) {
     return NextResponse.json({ error: "Query parameter 'q' is required" }, { status: 400 });
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const query = q.trim().toLowerCase();
 
     // Gather structured data from the database if the query seems task/people-oriented
-    const structuredContext = await gatherStructuredContext(query);
+    const structuredContext = await gatherStructuredContext(query, db);
 
     // Also do semantic search for meeting/transcript content
     let semanticSources: {
@@ -34,7 +34,7 @@ export async function GET(req: NextRequest) {
     }[] = [];
 
     try {
-      const chunks = await semanticSearch(q, limit, 0.2);
+      const chunks = await semanticSearch(q, orgId, limit, 0.2);
       const seenEncounters = new Set<number>();
       for (const chunk of chunks) {
         const encounterId =
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
           !seenEncounters.has(encounterId)
         ) {
           if (!title) {
-            const enc = await getOne<{ title: string }>(
+            const enc = await db.getOne<{ title: string }>(
               "SELECT title FROM encounters WHERE id = $1",
               [encounterId]
             );
@@ -141,13 +141,13 @@ Answer concisely and helpfully based on the provided context. Format with markdo
       { status: 500 }
     );
   }
-}
+});
 
 /**
  * Query the database for structured data relevant to the search query.
  * Returns a formatted string of results, or null if no structured data is relevant.
  */
-async function gatherStructuredContext(query: string): Promise<string | null> {
+async function gatherStructuredContext(query: string, db: AuthContext["db"]): Promise<string | null> {
   const parts: string[] = [];
 
   const isTaskQuery = /task|due|overdue|deadline|todo|action item|checklist|open|waiting|assigned|snoozed|in progress/i.test(query);
@@ -158,7 +158,7 @@ async function gatherStructuredContext(query: string): Promise<string | null> {
   // Always fetch tasks for task-related or time-related queries
   if (isTaskQuery || isTimeQuery) {
     // Open tasks with due dates
-    const openTasks = await getMany<ActionItem>(`
+    const openTasks = await db.getMany<ActionItem>(`
       SELECT ai.*, p.name AS person_name, sp.name AS source_person_name
       FROM action_items ai
       LEFT JOIN people p ON p.id = ai.person_id
@@ -186,7 +186,7 @@ async function gatherStructuredContext(query: string): Promise<string | null> {
     }
 
     // Snoozed tasks
-    const snoozedTasks = await getMany<ActionItem>(`
+    const snoozedTasks = await db.getMany<ActionItem>(`
       SELECT ai.*, p.name AS person_name
       FROM action_items ai
       LEFT JOIN people p ON p.id = ai.person_id
@@ -206,7 +206,7 @@ async function gatherStructuredContext(query: string): Promise<string | null> {
     }
 
     // Waiting on (them) tasks
-    const waitingTasks = await getMany<ActionItem>(`
+    const waitingTasks = await db.getMany<ActionItem>(`
       SELECT ai.*, p.name AS person_name
       FROM action_items ai
       LEFT JOIN people p ON p.id = ai.person_id
@@ -229,7 +229,7 @@ async function gatherStructuredContext(query: string): Promise<string | null> {
 
   // People data
   if (isPeopleQuery || isTaskQuery) {
-    const people = await getMany<Person & { open_items_count: number; waiting_on_count: number; encounter_count: number }>(`
+    const people = await db.getMany<Person & { open_items_count: number; waiting_on_count: number; encounter_count: number }>(`
       SELECT p.name, p.organization,
         COUNT(CASE WHEN ai.owner_type = 'me' AND ai.status = 'open' THEN 1 END)::int AS open_items_count,
         COUNT(CASE WHEN ai.owner_type = 'them' AND ai.status = 'open' THEN 1 END)::int AS waiting_on_count
@@ -252,7 +252,7 @@ async function gatherStructuredContext(query: string): Promise<string | null> {
 
   // Recent meetings
   if (isMeetingQuery) {
-    const encounters = await getMany<Encounter>(`
+    const encounters = await db.getMany<Encounter>(`
       SELECT e.id, e.title, e.occurred_at, e.encounter_type, e.summary
       FROM encounters e
       ORDER BY e.occurred_at DESC
