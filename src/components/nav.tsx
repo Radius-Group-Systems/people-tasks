@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useSession, signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { PersonAvatar } from "@/components/person-avatar";
+import { RadiusWordmark } from "@/components/radius-brand";
 import {
   Popover,
   PopoverContent,
@@ -41,23 +42,28 @@ export function Nav() {
   }
 
   return (
-    <nav className="border-b bg-background">
+    <nav className="border-b border-[#E7E5E4] bg-background">
       <div className="max-w-6xl mx-auto px-4">
-        <div className="flex items-center h-14 gap-4">
-          <Link href="/" className="font-semibold text-lg flex-shrink-0">
-            PeopleTasks
+        <div className="flex items-center h-14 gap-6">
+          <Link href="/" className="flex-shrink-0 group">
+            <RadiusWordmark
+              subBrand="GROUP"
+              variant="horizontal"
+              colorMode="dark"
+              size="sm"
+            />
           </Link>
 
           {/* Mobile hamburger */}
           <button
-            className="md:hidden ml-auto p-2 text-muted-foreground hover:text-foreground"
+            className="md:hidden ml-auto p-2 text-[#91918B] hover:text-foreground transition-colors duration-150"
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? <XIcon className="w-5 h-5" /> : <MenuIcon className="w-5 h-5" />}
           </button>
 
           {/* Desktop nav */}
-          <div className="hidden md:flex gap-1 flex-1">
+          <div className="hidden md:flex gap-0.5 flex-1">
             {navItems.map((item) => {
               const isActive =
                 item.href === "/"
@@ -68,10 +74,10 @@ export function Nav() {
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                      ? "bg-[#252525] text-white"
+                      : "text-[#91918B] hover:text-[#252525] hover:bg-[#F5F5F4]"
                   )}
                 >
                   {item.label}
@@ -84,26 +90,26 @@ export function Nav() {
           <div className="hidden md:block">
             <Popover>
               <PopoverTrigger asChild>
-                <button className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted transition-colors text-sm">
+                <button className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[#F5F5F4] transition-colors duration-150 text-sm">
                   {session?.user ? (
                     <>
                       <PersonAvatar name={session.user.name || "User"} photoUrl={session.user.image || undefined} size="sm" />
-                      <span className="hidden sm:inline text-muted-foreground">{session.user.name || session.user.email}</span>
+                      <span className="hidden sm:inline text-[#91918B]">{session.user.name || session.user.email}</span>
                     </>
                   ) : (
-                    <span className="text-muted-foreground text-xs">Loading...</span>
+                    <span className="text-[#91918B] text-xs">Loading...</span>
                   )}
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-[200px] p-1" align="end">
                 {session?.user && (
-                  <div className="px-2 py-1.5 text-xs text-muted-foreground border-b mb-1">
+                  <div className="px-2 py-1.5 text-xs text-[#91918B] border-b border-[#E7E5E4] mb-1">
                     {session.user.email}
                   </div>
                 )}
                 <button
                   onClick={() => signOut({ callbackUrl: "/login" })}
-                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-muted transition-colors text-left text-destructive"
+                  className="w-full flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-[#F5F5F4] transition-colors duration-150 text-left text-[#9B2C2C]"
                 >
                   <LogOutIcon className="w-4 h-4" />
                   Sign out
@@ -115,7 +121,7 @@ export function Nav() {
 
         {/* Mobile dropdown */}
         {mobileOpen && (
-          <div className="md:hidden border-t py-2 space-y-1">
+          <div className="md:hidden border-t border-[#E7E5E4] py-2 space-y-0.5">
             {navItems.map((item) => {
               const isActive =
                 item.href === "/"
@@ -127,10 +133,10 @@ export function Nav() {
                   href={item.href}
                   onClick={() => setMobileOpen(false)}
                   className={cn(
-                    "block px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "block px-3 py-2 rounded-md text-sm font-medium transition-all duration-200",
                     isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-muted"
+                      ? "bg-[#252525] text-white"
+                      : "text-[#91918B] hover:text-[#252525] hover:bg-[#F5F5F4]"
                   )}
                 >
                   {item.label}
@@ -138,13 +144,13 @@ export function Nav() {
               );
             })}
             {/* User info + sign out in mobile menu */}
-            <div className="border-t mt-2 pt-2 px-3">
+            <div className="border-t border-[#E7E5E4] mt-2 pt-2 px-3">
               {session?.user && (
-                <div className="text-xs text-muted-foreground mb-2">{session.user.email}</div>
+                <div className="text-xs text-[#91918B] mb-2">{session.user.email}</div>
               )}
               <button
                 onClick={() => signOut({ callbackUrl: "/login" })}
-                className="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-muted transition-colors text-destructive w-full"
+                className="flex items-center gap-2 px-2 py-1.5 text-sm rounded hover:bg-[#F5F5F4] transition-colors duration-150 text-[#9B2C2C] w-full"
               >
                 <LogOutIcon className="w-4 h-4" />
                 Sign out
