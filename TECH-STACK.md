@@ -123,8 +123,7 @@ ECS Fargate Cluster
 ```
 docker-compose.yml → PostgreSQL 16 + pgvector
 Host: localhost:5433
-User: ptasks / Password: localdev
-Database: people_tasks
+Credentials: see docker-compose.yml
 ```
 
 ---
