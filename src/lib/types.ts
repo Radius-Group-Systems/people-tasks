@@ -10,6 +10,7 @@ export interface Person {
   email: string | null;
   phone: string | null;
   slack_handle: string | null;
+  slack_id: string | null;
   organization: string | null;
   photo_url: string | null;
   notes: string | null;

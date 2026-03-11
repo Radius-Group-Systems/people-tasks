@@ -6,7 +6,7 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
 
   // Allow public routes
-  const publicPaths = ["/login", "/register", "/api/auth", "/api/notifications/process"];
+  const publicPaths = ["/login", "/register", "/api/auth", "/api/notifications/process", "/api/slack/events"];
   if (publicPaths.some((p) => pathname.startsWith(p))) {
     return;
   }
@@ -19,7 +19,7 @@ export default auth((req) => {
   }
 
   // Redirect users without an org to onboarding (except the onboarding page itself)
-  if (!req.auth.user.orgId && pathname !== "/onboarding" && !pathname.startsWith("/api/")) {
+  if (!req.auth.user?.orgId && pathname !== "/onboarding" && !pathname.startsWith("/api/")) {
     return Response.redirect(new URL("/onboarding", req.url));
   }
 });
