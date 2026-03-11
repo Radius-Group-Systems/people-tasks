@@ -17,9 +17,10 @@ import { toNoonUTC } from "@/lib/date-utils";
 interface QuickCaptureProps {
   onCreated?: () => void;
   defaultPersonId?: number;
+  encounterId?: number;
 }
 
-export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) {
+export function QuickCapture({ onCreated, defaultPersonId, encounterId }: QuickCaptureProps) {
   const [title, setTitle] = useState("");
   const [personId, setPersonId] = useState<string>(
     defaultPersonId ? defaultPersonId.toString() : ""
@@ -89,6 +90,7 @@ export function QuickCapture({ onCreated, defaultPersonId }: QuickCaptureProps) 
           owner_type: ownerType,
           due_trigger: dueTrigger === "none" ? null : dueTrigger,
           due_at: dueTrigger === "date" && dueDate ? toNoonUTC(dueDate) : null,
+          encounter_id: encounterId || undefined,
         }),
       });
       setTitle("");

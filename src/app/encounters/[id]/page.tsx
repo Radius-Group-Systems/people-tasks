@@ -15,8 +15,10 @@ import {
 import { cn } from "@/lib/utils";
 import { Encounter, ActionItem, MeetingSummary, EncounterFolder, Project } from "@/lib/types";
 import { ActionItemCard } from "@/components/action-item-card";
+import { QuickCapture } from "@/components/quick-capture";
 import {
   ArrowLeftIcon,
+  UploadIcon,
   CalendarIcon,
   UsersIcon,
   SparklesIcon,
@@ -100,6 +102,11 @@ export default function EncounterDetailPage() {
   const [createdTopics, setCreatedTopics] = useState<Set<number>>(new Set());
   const [creatingTopic, setCreatingTopic] = useState<number | null>(null);
   const [creatingAll, setCreatingAll] = useState(false);
+
+  // Transcript upload
+  const [transcriptDraft, setTranscriptDraft] = useState("");
+  const [uploadingTranscript, setUploadingTranscript] = useState(false);
+  const [showTranscriptUpload, setShowTranscriptUpload] = useState(false);
 
   // Email quick-task creation
   const [creatingEmailTask, setCreatingEmailTask] = useState(false);
@@ -327,6 +334,31 @@ export default function EncounterDetailPage() {
     } finally {
       setCreatingEmailTask(false);
     }
+  }
+
+  async function handleTranscriptUpload() {
+    if (!transcriptDraft.trim()) return;
+    setUploadingTranscript(true);
+    try {
+      await patchEncounter({ raw_transcript: transcriptDraft.trim() });
+      setShowTranscriptUpload(false);
+      setTranscriptDraft("");
+    } catch (err) {
+      console.error(err);
+      setError("Failed to save transcript");
+    } finally {
+      setUploadingTranscript(false);
+    }
+  }
+
+  function handleTranscriptFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setTranscriptDraft(ev.target?.result as string);
+    };
+    reader.readAsText(file);
   }
 
   useEffect(() => {
@@ -763,7 +795,7 @@ export default function EncounterDetailPage() {
             )}
           </div>
 
-          {/* Notes section */}
+          {/* Notes section — prominent for live meeting use */}
           <div className="border rounded-lg">
             <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
               <span className="text-sm font-medium flex items-center gap-1.5">
@@ -783,10 +815,19 @@ export default function EncounterDetailPage() {
             <Textarea
               value={notes}
               onChange={(e) => handleNotesChange(e.target.value)}
-              placeholder="Add notes about this encounter..."
-              rows={4}
-              className="border-none shadow-none focus-visible:ring-0 resize-none text-sm"
+              placeholder="Take notes during the meeting..."
+              rows={6}
+              className="border-none shadow-none focus-visible:ring-0 resize-y text-sm min-h-[120px]"
             />
+          </div>
+
+          {/* Quick task capture — inline */}
+          <div>
+            <h2 className="text-sm font-medium mb-2 flex items-center gap-1.5">
+              <ListChecksIcon className="w-3.5 h-3.5 text-muted-foreground" />
+              Quick Add Task
+            </h2>
+            <QuickCapture onCreated={fetchData} encounterId={parseInt(id)} />
           </div>
 
           {/* Quick summary if no detailed one yet */}
@@ -988,6 +1029,80 @@ export default function EncounterDetailPage() {
               <pre className="text-sm whitespace-pre-wrap text-muted-foreground mt-3 max-h-[500px] overflow-y-auto leading-relaxed">
                 {encounter.raw_transcript}
               </pre>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Transcript upload — for non-email encounters without a transcript */}
+      {!isEmail && (
+        <div className="border rounded-lg">
+          {!encounter.raw_transcript && !showTranscriptUpload ? (
+            <button
+              onClick={() => setShowTranscriptUpload(true)}
+              className="w-full flex items-center justify-center gap-2 px-4 py-4 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/20 transition-colors"
+            >
+              <UploadIcon className="w-4 h-4" />
+              Upload Transcript
+            </button>
+          ) : showTranscriptUpload ? (
+            <div className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium flex items-center gap-1.5">
+                  <UploadIcon className="w-3.5 h-3.5 text-muted-foreground" />
+                  Upload Transcript
+                </span>
+                <label className="text-xs text-primary hover:underline cursor-pointer">
+                  <input
+                    type="file"
+                    accept=".txt,.md,.vtt,.srt"
+                    onChange={handleTranscriptFile}
+                    className="hidden"
+                  />
+                  Choose file
+                </label>
+              </div>
+              <Textarea
+                value={transcriptDraft}
+                onChange={(e) => setTranscriptDraft(e.target.value)}
+                placeholder="Paste your meeting transcript here..."
+                rows={8}
+                className="text-sm resize-y min-h-[150px]"
+              />
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setShowTranscriptUpload(false); setTranscriptDraft(""); }}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!transcriptDraft.trim() || uploadingTranscript}
+                  onClick={handleTranscriptUpload}
+                >
+                  {uploadingTranscript ? "Saving..." : "Save Transcript"}
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Extract tasks button when transcript exists but no detailed summary yet */}
+          {encounter.raw_transcript && !summary && !isEmail && (
+            <div className="flex items-center justify-between px-4 py-3 border-t">
+              <span className="text-sm text-muted-foreground">
+                Transcript available — extract tasks with AI
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                onClick={() => router.push(`/review/${id}`)}
+              >
+                <SparklesIcon className="w-3.5 h-3.5" />
+                Extract Tasks
+              </Button>
             </div>
           )}
         </div>

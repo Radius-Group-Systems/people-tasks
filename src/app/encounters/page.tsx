@@ -97,6 +97,7 @@ export default function EncountersPage() {
   const [deleteTarget, setDeleteTarget] = useState<EncounterRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteFolderTarget, setDeleteFolderTarget] = useState<EncounterFolder | null>(null);
+  const [creatingMeeting, setCreatingMeeting] = useState(false);
 
   // Drag state
   const [draggingId, setDraggingId] = useState<number | null>(null);
@@ -213,6 +214,30 @@ export default function EncountersPage() {
         };
       })
     );
+  }
+
+  async function handleNewMeeting() {
+    const title = prompt("Meeting title:");
+    if (!title?.trim()) return;
+    setCreatingMeeting(true);
+    try {
+      const res = await fetch("/api/encounters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          encounter_type: "meeting",
+          occurred_at: new Date().toISOString(),
+          source: "manual",
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create encounter");
+      const encounter = await res.json();
+      router.push(`/encounters/${encounter.id}`);
+    } catch (err) {
+      console.error("Failed to create meeting:", err);
+      setCreatingMeeting(false);
+    }
   }
 
   // --- Drag handlers ---
@@ -340,9 +365,15 @@ export default function EncountersPage() {
             {draggingId && " — drop on a folder to move"}
           </p>
         </div>
-        <Button onClick={() => router.push("/import")}>
-          Import Transcript
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleNewMeeting} disabled={creatingMeeting}>
+            <PlusIcon className="w-4 h-4 mr-1.5" />
+            {creatingMeeting ? "Creating..." : "New Meeting"}
+          </Button>
+          <Button onClick={() => router.push("/import")}>
+            Import Transcript
+          </Button>
+        </div>
       </div>
 
       {/* Folders — visual cards */}

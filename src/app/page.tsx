@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { QuickCapture } from "@/components/quick-capture";
 import { ActionItemCard } from "@/components/action-item-card";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { ActionItem, Project } from "@/lib/types";
 import { toDateInputValue } from "@/lib/date-utils";
 import { cn } from "@/lib/utils";
@@ -63,10 +64,12 @@ function getDueCategory(item: ActionItem): "overdue" | "today" | "upcoming" | "l
 }
 
 export default function TodayPage() {
+  const router = useRouter();
   const [allTasks, setAllTasks] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<Project[]>([]);
   const [calendarEvents, setCalendarEvents] = useState<CalEvent[]>([]);
+  const [startingMeeting, setStartingMeeting] = useState<number | null>(null);
 
   // Filters
   const [viewMode, setViewMode] = useState<ViewMode>("focus");
@@ -216,6 +219,30 @@ export default function TodayPage() {
     setPersonFilter("all");
     setPriorityFilter("all");
     setProjectFilter("all");
+  }
+
+  async function startMeeting(event: CalEvent) {
+    setStartingMeeting(event.id);
+    try {
+      const res = await fetch("/api/encounters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: event.title,
+          encounter_type: "meeting",
+          occurred_at: event.starts_at,
+          source: "calendar",
+          participant_ids: event.matched_people?.map((p) => p.person_id) || [],
+          calendar_event_id: event.id,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create encounter");
+      const encounter = await res.json();
+      router.push(`/encounters/${encounter.id}`);
+    } catch (err) {
+      console.error("Failed to start meeting:", err);
+      setStartingMeeting(null);
+    }
   }
 
   if (loading) {
@@ -368,6 +395,13 @@ export default function TodayPage() {
                         )}
                       </div>
                     )}
+                    <button
+                      onClick={() => startMeeting(event)}
+                      disabled={startingMeeting === event.id}
+                      className="mt-2 text-[11px] font-medium text-primary hover:text-primary/80 transition-colors disabled:opacity-50"
+                    >
+                      {startingMeeting === event.id ? "Starting..." : "Start Meeting"}
+                    </button>
                   </div>
                 );
               })}

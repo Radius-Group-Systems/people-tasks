@@ -53,7 +53,8 @@ export const POST = withAuth(async (req, { db, orgId }) => {
   const body = await req.json();
   const {
     title, encounter_type, occurred_at, summary,
-    raw_transcript, source, source_file_path, participant_ids, project_id
+    raw_transcript, source, source_file_path, participant_ids, project_id,
+    calendar_event_id,
   } = body;
 
   if (!title?.trim()) {
@@ -91,6 +92,14 @@ export const POST = withAuth(async (req, { db, orgId }) => {
         [encounter.id, pid]
       );
     }
+  }
+
+  // Link calendar event if provided
+  if (calendar_event_id) {
+    await db.query(
+      `UPDATE calendar_events SET encounter_id = $1 WHERE id = $2`,
+      [encounter.id, calendar_event_id]
+    );
   }
 
   return NextResponse.json(encounter, { status: 201 });

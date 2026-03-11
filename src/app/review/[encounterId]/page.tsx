@@ -45,6 +45,13 @@ interface ExtractedItem {
   accepted: boolean;
   editing: boolean;
   showDiscussion: boolean;
+  // Duplicate detection
+  duplicateOf: string | null;
+}
+
+interface ExistingActionItem {
+  id: number;
+  title: string;
 }
 
 interface ExtractionData {
@@ -73,11 +80,40 @@ export default function ReviewPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
+  const [existingItems, setExistingItems] = useState<ExistingActionItem[]>([]);
+
+  function findDuplicate(title: string, existing: ExistingActionItem[]): string | null {
+    const normalizedTitle = title.toLowerCase().trim();
+    for (const item of existing) {
+      const normalizedExisting = item.title.toLowerCase().trim();
+      // Exact match
+      if (normalizedTitle === normalizedExisting) return item.title;
+      // Substring match (one contains the other) with similar length
+      const lenRatio = Math.min(normalizedTitle.length, normalizedExisting.length) /
+        Math.max(normalizedTitle.length, normalizedExisting.length);
+      if (lenRatio > 0.5) {
+        if (normalizedTitle.includes(normalizedExisting) || normalizedExisting.includes(normalizedTitle)) {
+          return item.title;
+        }
+      }
+    }
+    return null;
+  }
 
   const runExtraction = useCallback(async () => {
     setExtracting(true);
     setError(null);
     try {
+      // Fetch existing action items for this encounter (for duplicate detection)
+      let existing: ExistingActionItem[] = [];
+      try {
+        const existingRes = await fetch(`/api/action-items?encounter_id=${encounterId}&status=all`);
+        if (existingRes.ok) {
+          existing = await existingRes.json();
+          setExistingItems(existing);
+        }
+      } catch { /* non-critical */ }
+
       const userPersonId = localStorage.getItem("my-person-id");
       const res = await fetch(`/api/encounters/${encounterId}/extract`, {
         method: "POST",
@@ -106,15 +142,19 @@ export default function ReviewPage() {
       );
 
       setItems(
-        result.action_items.map((item) => ({
-          ...item,
-          person_id: item.person_name
-            ? nameToId.get(item.person_name.toLowerCase()) || ""
-            : "",
-          accepted: true,
-          editing: false,
-          showDiscussion: false,
-        }))
+        result.action_items.map((item) => {
+          const dup = findDuplicate(item.title, existing);
+          return {
+            ...item,
+            person_id: item.person_name
+              ? nameToId.get(item.person_name.toLowerCase()) || ""
+              : "",
+            accepted: !dup, // default unchecked for duplicates
+            editing: false,
+            showDiscussion: false,
+            duplicateOf: dup,
+          };
+        })
       );
     } catch (err) {
       console.error(err);
@@ -276,6 +316,9 @@ export default function ReviewPage() {
           <h1 className="text-2xl font-bold">Review Meeting Topics</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {items.length} topics found — {acceptedCount} selected as tasks with {totalSubtasks} subtasks
+            {existingItems.length > 0 && (
+              <span className="text-yellow-600"> ({existingItems.length} existing tasks on this encounter)</span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -344,6 +387,14 @@ export default function ReviewPage() {
                     {index + 1}
                   </span>
                   <span className="font-semibold">{item.title}</span>
+                  {item.duplicateOf && (
+                    <Badge
+                      variant="outline"
+                      className="text-xs border-yellow-400 text-yellow-700 bg-yellow-50"
+                    >
+                      Possible duplicate of: {item.duplicateOf}
+                    </Badge>
+                  )}
                   <Badge
                     variant="outline"
                     className={cn(
