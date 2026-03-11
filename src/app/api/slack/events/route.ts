@@ -33,6 +33,7 @@ export async function POST(req: NextRequest) {
   }
 
   const event = payload.event;
+  console.log(`[slack-ask] Event received: type=${event.type}, subtype=${event.subtype || "none"}, channel=${event.channel}`);
 
   // Filter to configured channel
   if (CHANNEL_ID && event.channel !== CHANNEL_ID) {
@@ -80,17 +81,22 @@ interface SlackMessageEvent {
   files?: SlackFile[];
 }
 
-async function processSlackDelete(event: { channel: string; previous_message?: { ts: string } }) {
+async function processSlackDelete(event: { channel: string; deleted_ts?: string; previous_message?: { ts: string } }) {
   try {
-    if (!ORG_ID || !event.previous_message?.ts) return;
+    const messageTs = event.deleted_ts || event.previous_message?.ts;
+    if (!ORG_ID || !messageTs) {
+      console.log(`[slack-ask] Delete skipped: orgId=${!!ORG_ID}, messageTs=${messageTs}`);
+      return;
+    }
 
+    console.log(`[slack-ask] Deleting task for message ${messageTs} in ${event.channel}`);
     const db = await tenantDb(ORG_ID);
     try {
       const result = await db.query(
         "DELETE FROM action_items WHERE slack_channel_id = $1 AND slack_thread_ts = $2",
-        [event.channel, event.previous_message.ts]
+        [event.channel, messageTs]
       );
-      console.log(`[slack-ask] Deleted ${result.rowCount} task(s) for removed message ${event.previous_message.ts}`);
+      console.log(`[slack-ask] Deleted ${result.rowCount} task(s) for removed message ${messageTs}`);
     } finally {
       await db.release();
     }
