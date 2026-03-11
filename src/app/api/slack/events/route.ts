@@ -4,6 +4,7 @@ import { verifySlackRequest } from "@/lib/slack-verify";
 import { parseSlackMessage } from "@/lib/slack-task-parser";
 import { getSlackClient } from "@/lib/slack";
 import { tenantDb, query } from "@/lib/db";
+import { uploadFile } from "@/lib/storage";
 
 export const runtime = "nodejs";
 
@@ -51,6 +52,15 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
+interface SlackFile {
+  id: string;
+  name: string;
+  mimetype: string;
+  size: number;
+  url_private_download?: string;
+  url_private?: string;
+}
+
 interface SlackMessageEvent {
   type: string;
   subtype?: string;
@@ -59,6 +69,7 @@ interface SlackMessageEvent {
   text: string;
   channel: string;
   ts: string;
+  files?: SlackFile[];
 }
 
 async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
@@ -126,15 +137,61 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
         person = result.rows[0];
       }
 
-      // 3. Parse message with Bedrock
-      const parsed = await parseSlackMessage(event.text, person.name);
+      // 3. Parse message with Bedrock (also extracts links from Slack mrkdwn)
+      const parsed = await parseSlackMessage(event.text || "", person.name);
 
-      // 4. Create action item (owner_type="me" — it's a task FOR Jeff)
-      //    Store Slack thread info so we can post updates back
+      // 4. Download Slack files (images, docs) → upload to S3
+      const attachments: { name: string; url: string; type: string; size: number }[] = [];
+
+      if (event.files && event.files.length > 0) {
+        const botToken = process.env.SLACK_BOT_TOKEN;
+
+        for (const file of event.files) {
+          const downloadUrl = file.url_private_download || file.url_private;
+          if (!downloadUrl || !botToken) continue;
+
+          try {
+            // Download from Slack (requires bot token auth)
+            const resp = await fetch(downloadUrl, {
+              headers: { Authorization: `Bearer ${botToken}` },
+            });
+            if (!resp.ok) continue;
+
+            const buffer = Buffer.from(await resp.arrayBuffer());
+            const timestamp = Date.now();
+            const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+            const s3Key = await uploadFile(
+              ORG_ID,
+              "slack-attachments",
+              `${timestamp}-${safeName}`,
+              buffer,
+              file.mimetype
+            );
+
+            attachments.push({
+              name: file.name,
+              url: s3Key, // stored as S3 key, resolved via /api/files/[...key]
+              type: file.mimetype,
+              size: file.size,
+            });
+          } catch (err) {
+            console.error(`[slack-ask] Failed to download file ${file.name}:`, err);
+          }
+        }
+      }
+
+      // 5. Build links array from parsed message links
+      const links = parsed.links.map((l) => ({
+        url: l.url,
+        label: l.label || undefined,
+      }));
+
+      // 6. Create action item with links and attachments
       const actionResult = await db.query<{ id: number; title: string }>(
         `INSERT INTO action_items
-          (title, description, owner_type, source_person_id, priority, due_at, slack_channel_id, slack_thread_ts, org_id)
-         VALUES ($1, $2, 'me', $3, $4, $5, $6, $7, $8)
+          (title, description, owner_type, source_person_id, priority, due_at,
+           links, attachments, slack_channel_id, slack_thread_ts, org_id)
+         VALUES ($1, $2, 'me', $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, title`,
         [
           parsed.title.slice(0, 500),
@@ -142,6 +199,8 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
           person.id,
           parsed.priority,
           parsed.due_hint || null,
+          JSON.stringify(links),
+          JSON.stringify(attachments),
           event.channel,
           event.ts,
           ORG_ID,
@@ -149,13 +208,13 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
       );
       const task = actionResult.rows[0];
 
-      // 5. Mark event as processed
+      // 7. Mark event as processed
       await db.query(
         "INSERT INTO slack_processed_events (event_id) VALUES ($1) ON CONFLICT DO NOTHING",
         [eventId]
       );
 
-      // 6. Reply in thread
+      // 8. Reply in thread
       const priorityEmoji: Record<string, string> = {
         urgent: ":rotating_light:",
         high: ":orange_circle:",
@@ -170,6 +229,12 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
       }
       if (parsed.due_hint) {
         replyText += `\n:calendar: Due: ${new Date(parsed.due_hint).toLocaleDateString()}`;
+      }
+      if (links.length > 0) {
+        replyText += `\n:link: ${links.length} link${links.length > 1 ? "s" : ""} attached`;
+      }
+      if (attachments.length > 0) {
+        replyText += `\n:paperclip: ${attachments.length} file${attachments.length > 1 ? "s" : ""} attached`;
       }
 
       await slackClient.chat.postMessage({
