@@ -62,6 +62,8 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchData();
+    const interval = setInterval(fetchData, 30_000);
+    return () => clearInterval(interval);
   }, [fetchData]);
 
   const allPeople = useMemo(() => {
