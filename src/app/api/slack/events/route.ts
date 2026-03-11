@@ -12,18 +12,19 @@ const CHANNEL_ID = process.env.SLACK_ASK_CHANNEL_ID;
 
 export async function POST(req: NextRequest) {
   const rawBody = await req.text();
+  const payload = JSON.parse(rawBody);
+
+  // Slack URL verification challenge (handle before signature check for initial setup)
+  if (payload.type === "url_verification") {
+    return NextResponse.json({ challenge: payload.challenge });
+  }
+
+  // Verify signing secret on all real events
   const signature = req.headers.get("x-slack-signature");
   const timestamp = req.headers.get("x-slack-request-timestamp");
 
   if (!verifySlackRequest(signature, timestamp, rawBody)) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
-  }
-
-  const payload = JSON.parse(rawBody);
-
-  // Slack URL verification challenge
-  if (payload.type === "url_verification") {
-    return NextResponse.json({ challenge: payload.challenge });
   }
 
   if (payload.type !== "event_callback") {
