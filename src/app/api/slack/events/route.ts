@@ -73,6 +73,7 @@ interface SlackMessageEvent {
 }
 
 async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
+  console.log(`[slack-ask] Processing event ${eventId} from user ${event.user}, files: ${event.files?.length || 0}`);
   try {
     if (!ORG_ID) {
       console.error("[slack-ask] SLACK_ASK_ORG_ID not configured");
@@ -145,17 +146,24 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
 
       if (event.files && event.files.length > 0) {
         const botToken = process.env.SLACK_BOT_TOKEN;
+        console.log(`[slack-ask] Processing ${event.files.length} file(s), botToken present: ${!!botToken}`);
 
         for (const file of event.files) {
           const downloadUrl = file.url_private_download || file.url_private;
-          if (!downloadUrl || !botToken) continue;
+          if (!downloadUrl || !botToken) {
+            console.log(`[slack-ask] Skipping file ${file.name}: downloadUrl=${!!downloadUrl}, botToken=${!!botToken}`);
+            continue;
+          }
 
           try {
             // Download from Slack (requires bot token auth)
             const resp = await fetch(downloadUrl, {
               headers: { Authorization: `Bearer ${botToken}` },
             });
-            if (!resp.ok) continue;
+            if (!resp.ok) {
+              console.error(`[slack-ask] File download failed for ${file.name}: ${resp.status} ${resp.statusText}`);
+              continue;
+            }
 
             const buffer = Buffer.from(await resp.arrayBuffer());
             const timestamp = Date.now();
@@ -189,9 +197,9 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
       // 6. Create action item with links and attachments
       const actionResult = await db.query<{ id: number; title: string }>(
         `INSERT INTO action_items
-          (title, description, owner_type, source_person_id, priority, due_at,
+          (title, description, owner_type, person_id, source_person_id, priority, due_at,
            links, attachments, slack_channel_id, slack_thread_ts, org_id)
-         VALUES ($1, $2, 'me', $3, $4, $5, $6, $7, $8, $9, $10)
+         VALUES ($1, $2, 'me', $3, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, title`,
         [
           parsed.title.slice(0, 500),
