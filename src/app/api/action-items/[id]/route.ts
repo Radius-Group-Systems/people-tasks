@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
+import { after } from "next/server";
 import { withAuth } from "@/lib/api-handler";
 import { ActionItem } from "@/lib/types";
+import { notifySlackThread } from "@/lib/slack-notify";
 
 export const PATCH = withAuth(async (req, { db }, params) => {
   const id = params!.id;
@@ -61,7 +63,7 @@ export const PATCH = withAuth(async (req, { db }, params) => {
     completed_at = null;
   }
 
-  const result = await db.query<ActionItem>(
+  const result = await db.query<ActionItem & { slack_channel_id: string | null; slack_thread_ts: string | null }>(
     `UPDATE action_items SET
       title = $2,
       description = $3,
@@ -96,7 +98,24 @@ export const PATCH = withAuth(async (req, { db }, params) => {
     ]
   );
 
-  return NextResponse.json(result.rows[0]);
+  const updated = result.rows[0];
+
+  // Notify the Slack thread if the task came from #ask-jeff and status changed
+  if (updated.slack_channel_id && updated.slack_thread_ts && status !== current.status) {
+    after(async () => {
+      notifySlackThread({
+        orgId: db.getOrgId(),
+        slackChannelId: updated.slack_channel_id!,
+        slackThreadTs: updated.slack_thread_ts!,
+        sourcePersonId: updated.source_person_id,
+        taskTitle: updated.title,
+        oldStatus: current.status,
+        newStatus: status,
+      });
+    });
+  }
+
+  return NextResponse.json(updated);
 });
 
 export const DELETE = withAuth(async (_req, { db }, params) => {

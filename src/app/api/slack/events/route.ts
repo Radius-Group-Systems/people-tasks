@@ -130,10 +130,11 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
       const parsed = await parseSlackMessage(event.text, person.name);
 
       // 4. Create action item (owner_type="me" — it's a task FOR Jeff)
+      //    Store Slack thread info so we can post updates back
       const actionResult = await db.query<{ id: number; title: string }>(
         `INSERT INTO action_items
-          (title, description, owner_type, source_person_id, priority, due_at, org_id)
-         VALUES ($1, $2, 'me', $3, $4, $5, $6)
+          (title, description, owner_type, source_person_id, priority, due_at, slack_channel_id, slack_thread_ts, org_id)
+         VALUES ($1, $2, 'me', $3, $4, $5, $6, $7, $8)
          RETURNING id, title`,
         [
           parsed.title.slice(0, 500),
@@ -141,6 +142,8 @@ async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
           person.id,
           parsed.priority,
           parsed.due_hint || null,
+          event.channel,
+          event.ts,
           ORG_ID,
         ]
       );
