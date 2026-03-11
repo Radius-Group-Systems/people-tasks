@@ -34,13 +34,21 @@ export async function POST(req: NextRequest) {
 
   const event = payload.event;
 
-  // Only process real user messages (not bot messages, edits, etc.)
-  if (event.type !== "message" || event.subtype || event.bot_id) {
+  // Filter to configured channel
+  if (CHANNEL_ID && event.channel !== CHANNEL_ID) {
     return NextResponse.json({ ok: true });
   }
 
-  // Filter to configured channel
-  if (CHANNEL_ID && event.channel !== CHANNEL_ID) {
+  // Handle message deletions — remove the associated task
+  if (event.type === "message" && event.subtype === "message_deleted") {
+    after(async () => {
+      await processSlackDelete(event);
+    });
+    return NextResponse.json({ ok: true });
+  }
+
+  // Only process real user messages (not bot messages, edits, etc.)
+  if (event.type !== "message" || event.subtype || event.bot_id) {
     return NextResponse.json({ ok: true });
   }
 
@@ -70,6 +78,25 @@ interface SlackMessageEvent {
   channel: string;
   ts: string;
   files?: SlackFile[];
+}
+
+async function processSlackDelete(event: { channel: string; previous_message?: { ts: string } }) {
+  try {
+    if (!ORG_ID || !event.previous_message?.ts) return;
+
+    const db = await tenantDb(ORG_ID);
+    try {
+      const result = await db.query(
+        "DELETE FROM action_items WHERE slack_channel_id = $1 AND slack_thread_ts = $2",
+        [event.channel, event.previous_message.ts]
+      );
+      console.log(`[slack-ask] Deleted ${result.rowCount} task(s) for removed message ${event.previous_message.ts}`);
+    } finally {
+      await db.release();
+    }
+  } catch (err) {
+    console.error("[slack-ask] Error processing message deletion:", err);
+  }
 }
 
 async function processSlackAsk(eventId: string, event: SlackMessageEvent) {
