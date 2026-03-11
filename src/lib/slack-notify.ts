@@ -42,11 +42,24 @@ export async function notifySlackThread(opts: {
   if (!text) return;
 
   try {
+    // Post the status update in the thread
     await client.chat.postMessage({
       channel: slackChannelId,
       thread_ts: slackThreadTs,
       text,
     });
+
+    // When completed, delete the original message (and its thread) from Slack
+    if (newStatus === "done") {
+      try {
+        await client.chat.delete({
+          channel: slackChannelId,
+          ts: slackThreadTs,
+        });
+      } catch (delErr) {
+        console.error("[slack-notify] Failed to delete original message:", delErr);
+      }
+    }
   } catch (err) {
     console.error("[slack-notify] Failed to post thread update:", err);
   }
