@@ -61,7 +61,9 @@ export async function POST(req: NextRequest) {
   }
 
   // Only process real user messages (not bot messages, edits, etc.)
-  if (event.type !== "message" || event.subtype || event.bot_id) {
+  // Allow file_share subtype (messages with attachments)
+  const allowedSubtypes = [undefined, "file_share"];
+  if (event.type !== "message" || !allowedSubtypes.includes(event.subtype) || event.bot_id) {
     return NextResponse.json({ ok: true });
   }
 
