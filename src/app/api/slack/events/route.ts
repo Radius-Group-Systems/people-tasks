@@ -48,14 +48,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Handle message_changed that might be a deletion (Slack sometimes sends this instead)
+  // Handle message_changed that is a tombstone (Slack sends this instead of message_deleted)
   if (event.type === "message" && event.subtype === "message_changed") {
-    console.log(`[slack-ask] message_changed details: ${JSON.stringify({ hidden: event.hidden, deleted_ts: event.deleted_ts, previous_ts: event.previous_message?.ts, message_ts: event.message?.ts, message_subtype: event.message?.subtype })}`);
-    // If the message was tombstoned (hidden=true with deleted_ts), treat as deletion
-    if (event.hidden && event.deleted_ts) {
-      after(async () => {
-        await processSlackDelete(event);
-      });
+    if (event.hidden && event.message?.subtype === "tombstone") {
+      const tombstoneTs = event.previous_message?.ts || event.message?.ts;
+      console.log(`[slack-ask] Tombstone detected, deleting task for ts=${tombstoneTs}`);
+      if (tombstoneTs) {
+        after(async () => {
+          await processSlackDelete({ channel: event.channel, deleted_ts: tombstoneTs });
+        });
+      }
     }
     return NextResponse.json({ ok: true });
   }
