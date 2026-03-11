@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { toNoonUTC, toDateInputValue, formatDateDisplay, isDateOverdue } from "@/lib/date-utils";
+import { daysUntilDue, formatRelativeDue } from "@/lib/task-urgency";
 import { PersonPicker } from "@/components/person-picker";
 import {
   LinkIcon,
@@ -179,6 +180,16 @@ export function ActionItemCard({
   const effectiveDue = item.due_at || (item.due_trigger === "next_meeting" ? item.next_meeting_date : null);
   const isOverdue =
     effectiveDue && isDateOverdue(effectiveDue) && item.status === "open";
+  const days = daysUntilDue(item);
+  const urgencyBorder = isOverdue
+    ? "border-l-4 border-l-red-500"
+    : days !== null && days <= 1
+      ? "border-l-4 border-l-amber-500"
+      : item.priority === "urgent"
+        ? "border-l-4 border-l-red-400"
+        : item.priority === "high"
+          ? "border-l-4 border-l-orange-400"
+          : "";
 
   const hasExtras =
     (item.links?.length > 0) || (item.attachments?.length > 0);
@@ -224,7 +235,7 @@ export function ActionItemCard({
           "hover:border-primary/30 hover:shadow-sm",
           item.status === "done" && "opacity-50",
           item.status === "snoozed" && "opacity-60",
-          isOverdue && "border-red-300 bg-red-50"
+          isOverdue ? "border-red-300 bg-red-50" : urgencyBorder
         )}
       >
         <button
@@ -252,6 +263,11 @@ export function ActionItemCard({
                 variant="secondary"
               >
                 {item.priority}
+              </Badge>
+            )}
+            {item.status === "in_progress" && (
+              <Badge className="bg-violet-500 text-white" variant="secondary">
+                in progress
               </Badge>
             )}
             {item.owner_type === "them" && (
@@ -305,11 +321,10 @@ export function ActionItemCard({
                 due next meeting{item.next_meeting_date && ` (${formatDateDisplay(item.next_meeting_date)})`}
               </Badge>
             )}
-            {item.due_at && item.due_trigger !== "next_meeting" && (
-              <span className={cn(isOverdue && "text-red-600 font-medium")}>
-                Due {formatDateDisplay(item.due_at)}
-              </span>
-            )}
+            {item.due_at && item.due_trigger !== "next_meeting" && (() => {
+              const rel = formatRelativeDue(item.due_at);
+              return <span className={rel.className}>{rel.text}</span>;
+            })()}
           </div>
         </div>
         {/* Snooze quick-action (visible on hover) */}

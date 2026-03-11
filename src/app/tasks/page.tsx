@@ -8,13 +8,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ActionItemCard } from "@/components/action-item-card";
 import { QuickCapture } from "@/components/quick-capture";
 import { Badge } from "@/components/ui/badge";
 import { ActionItem } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { UsersIcon, FolderKanbanIcon, LayoutListIcon, KanbanIcon } from "lucide-react";
+import {
+  UsersIcon,
+  FolderKanbanIcon,
+  LayoutListIcon,
+  KanbanIcon,
+  AlertTriangleIcon,
+  CalendarIcon,
+  CalendarDaysIcon,
+  InboxIcon,
+  ChevronRightIcon,
+} from "lucide-react";
+import { sectionAndSort, TaskSection } from "@/lib/task-urgency";
 
 const STATUSES = ["open", "in_progress", "snoozed", "done"] as const;
 
@@ -32,27 +42,61 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-green-500",
 };
 
+const SECTION_CONFIG: Record<
+  TaskSection,
+  { icon: typeof AlertTriangleIcon; color: string; headerColor: string }
+> = {
+  overdue: {
+    icon: AlertTriangleIcon,
+    color: "text-red-600",
+    headerColor: "border-red-200 bg-red-50",
+  },
+  today: {
+    icon: CalendarIcon,
+    color: "text-amber-600",
+    headerColor: "border-amber-200 bg-amber-50",
+  },
+  tomorrow: {
+    icon: CalendarIcon,
+    color: "text-blue-600",
+    headerColor: "",
+  },
+  this_week: {
+    icon: CalendarDaysIcon,
+    color: "text-indigo-600",
+    headerColor: "",
+  },
+  later: {
+    icon: CalendarIcon,
+    color: "text-muted-foreground",
+    headerColor: "",
+  },
+  no_date: {
+    icon: InboxIcon,
+    color: "text-muted-foreground",
+    headerColor: "",
+  },
+};
+
 type ViewMode = "list" | "kanban";
 
 export default function TasksPage() {
-  const [itemsByStatus, setItemsByStatus] = useState<Record<string, ActionItem[]>>({});
+  const [allItems, setAllItems] = useState<ActionItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [personFilter, setPersonFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [showSnoozed, setShowSnoozed] = useState(false);
+  const [showDone, setShowDone] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
-      const results = await Promise.all(
-        STATUSES.map((s) =>
-          fetch(`/api/action-items?owner_type=me&status=${s}`).then((r) => r.json())
-        )
-      );
-      const map: Record<string, ActionItem[]> = {};
-      STATUSES.forEach((s, i) => (map[s] = results[i]));
-      setItemsByStatus(map);
+      const items = await fetch(
+        `/api/action-items?owner_type=me&status=all`
+      ).then((r) => r.json());
+      setAllItems(items);
     } catch (err) {
       console.error("Failed to fetch:", err);
     } finally {
@@ -66,32 +110,58 @@ export default function TasksPage() {
     return () => clearInterval(interval);
   }, [fetchData]);
 
-  const allPeople = useMemo(() => {
-    const names = new Set<string>();
-    for (const items of Object.values(itemsByStatus)) {
-      for (const item of items) {
-        if (item.person_name) names.add(item.person_name);
+  // Partition items by status
+  const { active, snoozed, done, itemsByStatus } = useMemo(() => {
+    const active: ActionItem[] = [];
+    const snoozed: ActionItem[] = [];
+    const done: ActionItem[] = [];
+    const itemsByStatus: Record<string, ActionItem[]> = {
+      open: [],
+      in_progress: [],
+      snoozed: [],
+      done: [],
+    };
+
+    for (const item of allItems) {
+      itemsByStatus[item.status]?.push(item);
+      if (item.status === "open" || item.status === "in_progress") {
+        active.push(item);
+      } else if (item.status === "snoozed") {
+        snoozed.push(item);
+      } else if (item.status === "done") {
+        done.push(item);
       }
     }
+
+    return { active, snoozed, done, itemsByStatus };
+  }, [allItems]);
+
+  const allPeople = useMemo(() => {
+    const names = new Set<string>();
+    for (const item of allItems) {
+      if (item.person_name) names.add(item.person_name);
+    }
     return Array.from(names).sort();
-  }, [itemsByStatus]);
+  }, [allItems]);
 
   const allProjects = useMemo(() => {
     const names = new Set<string>();
-    for (const items of Object.values(itemsByStatus)) {
-      for (const item of items) {
-        if (item.project_name) names.add(item.project_name);
-      }
+    for (const item of allItems) {
+      if (item.project_name) names.add(item.project_name);
     }
     return Array.from(names).sort();
-  }, [itemsByStatus]);
+  }, [allItems]);
 
   function filterItems(items: ActionItem[]) {
     let filtered = items;
-    if (personFilter === "_none") filtered = filtered.filter((i) => !i.person_name);
-    else if (personFilter !== "all") filtered = filtered.filter((i) => i.person_name === personFilter);
-    if (projectFilter === "_none") filtered = filtered.filter((i) => !i.project_name);
-    else if (projectFilter !== "all") filtered = filtered.filter((i) => i.project_name === projectFilter);
+    if (personFilter === "_none")
+      filtered = filtered.filter((i) => !i.person_name);
+    else if (personFilter !== "all")
+      filtered = filtered.filter((i) => i.person_name === personFilter);
+    if (projectFilter === "_none")
+      filtered = filtered.filter((i) => !i.project_name);
+    else if (projectFilter !== "all")
+      filtered = filtered.filter((i) => i.project_name === projectFilter);
     return filtered;
   }
 
@@ -139,26 +209,16 @@ export default function TasksPage() {
     return <div className="text-muted-foreground">Loading...</div>;
   }
 
-  function renderList(items: ActionItem[], emptyMessage: string) {
-    const filtered = filterItems(items);
-    if (!filtered || filtered.length === 0) {
-      return <p className="text-muted-foreground">{emptyMessage}</p>;
-    }
-    return (
-      <div className="space-y-2">
-        {filtered.map((item) => (
-          <ActionItemCard key={item.id} item={item} onUpdate={fetchData} />
-        ))}
-      </div>
-    );
-  }
-
-  const openCount = filterItems(itemsByStatus.open || []).length;
+  const filteredActive = filterItems(active);
+  const sections = sectionAndSort(filteredActive);
+  const filteredSnoozed = filterItems(snoozed);
+  const filteredDone = filterItems(done);
+  const activeCount = filteredActive.length;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold">My Tasks ({openCount})</h1>
+        <h1 className="text-2xl font-bold">My Tasks ({activeCount})</h1>
         <div className="flex items-center gap-2 flex-wrap">
           {/* View mode toggle */}
           <div className="flex gap-0.5 bg-muted rounded-lg p-0.5">
@@ -172,7 +232,7 @@ export default function TasksPage() {
               )}
             >
               <LayoutListIcon className="w-3.5 h-3.5" />
-              List
+              Focus
             </button>
             <button
               onClick={() => setViewMode("kanban")}
@@ -222,30 +282,117 @@ export default function TasksPage() {
 
       <QuickCapture onCreated={fetchData} />
 
-      {/* List View */}
+      {/* Focus View */}
       {viewMode === "list" && (
-        <Tabs defaultValue="open">
-          <TabsList>
-            {STATUSES.map((s) => (
-              <TabsTrigger key={s} value={s}>
-                {STATUS_LABELS[s]} ({filterItems(itemsByStatus[s] || []).length})
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        <div className="space-y-6">
+          {/* Active tasks grouped by urgency */}
+          {sections.length === 0 && (
+            <p className="text-muted-foreground py-8 text-center">
+              All clear — nothing needs your attention.
+            </p>
+          )}
 
-          {STATUSES.map((s) => (
-            <TabsContent key={s} value={s} className="mt-4">
-              {renderList(
-                itemsByStatus[s] || [],
-                s === "open"
-                  ? "All clear."
-                  : s === "done"
-                    ? "Nothing completed yet."
-                    : `No ${STATUS_LABELS[s].toLowerCase()} tasks.`
+          {sections.map(({ section, label, items }) => {
+            const config = SECTION_CONFIG[section];
+            const Icon = config.icon;
+            return (
+              <div key={section}>
+                <div
+                  className={cn(
+                    "flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md",
+                    config.headerColor
+                  )}
+                >
+                  <Icon className={cn("w-4 h-4", config.color)} />
+                  <span
+                    className={cn("text-sm font-semibold", config.color)}
+                  >
+                    {label}
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] ml-1"
+                  >
+                    {items.length}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  {items.map((item) => (
+                    <ActionItemCard
+                      key={item.id}
+                      item={item}
+                      onUpdate={fetchData}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Snoozed — collapsible */}
+          {filteredSnoozed.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowSnoozed(!showSnoozed)}
+                className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "w-4 h-4 transition-transform",
+                    showSnoozed && "rotate-90"
+                  )}
+                />
+                Snoozed
+                <Badge variant="secondary" className="text-[10px]">
+                  {filteredSnoozed.length}
+                </Badge>
+              </button>
+              {showSnoozed && (
+                <div className="space-y-2 mt-2">
+                  {filteredSnoozed.map((item) => (
+                    <ActionItemCard
+                      key={item.id}
+                      item={item}
+                      onUpdate={fetchData}
+                    />
+                  ))}
+                </div>
               )}
-            </TabsContent>
-          ))}
-        </Tabs>
+            </div>
+          )}
+
+          {/* Done — collapsible */}
+          {filteredDone.length > 0 && (
+            <div>
+              <button
+                onClick={() => setShowDone(!showDone)}
+                className="flex items-center gap-2 px-2 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors w-full"
+              >
+                <ChevronRightIcon
+                  className={cn(
+                    "w-4 h-4 transition-transform",
+                    showDone && "rotate-90"
+                  )}
+                />
+                Completed
+                <Badge variant="secondary" className="text-[10px]">
+                  {filteredDone.length}
+                </Badge>
+              </button>
+              {showDone && (
+                <div className="space-y-2 mt-2">
+                  {filteredDone.map((item) => (
+                    <ActionItemCard
+                      key={item.id}
+                      item={item}
+                      onUpdate={fetchData}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Kanban Board View */}
@@ -266,9 +413,19 @@ export default function TasksPage() {
               >
                 {/* Column header */}
                 <div className="flex items-center gap-2 mb-3 pb-2 border-b">
-                  <div className={cn("w-2 h-2 rounded-full", STATUS_COLORS[status])} />
-                  <span className="text-sm font-medium">{STATUS_LABELS[status]}</span>
-                  <Badge variant="secondary" className="text-[10px] ml-auto">
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full",
+                      STATUS_COLORS[status]
+                    )}
+                  />
+                  <span className="text-sm font-medium">
+                    {STATUS_LABELS[status]}
+                  </span>
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] ml-auto"
+                  >
                     {items.length}
                   </Badge>
                 </div>
@@ -286,10 +443,7 @@ export default function TasksPage() {
                         draggingId === item.id && "opacity-40"
                       )}
                     >
-                      <ActionItemCard
-                        item={item}
-                        onUpdate={fetchData}
-                      />
+                      <ActionItemCard item={item} onUpdate={fetchData} />
                     </div>
                   ))}
                   {items.length === 0 && (
